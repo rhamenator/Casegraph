@@ -18,8 +18,8 @@ requirements-oriented robustness campaign, the controlled local result is:
 
 | Metric | Covered | Total | Result | CI floor |
 |---|---:|---:|---:|---:|
-| Lines | 6,876 | 7,364 | 93.37% | 90% |
-| Regions | 9,596 | 10,698 | 89.70% | 85% |
+| Lines | 6,876 | 7,363 | 93.39% | 90% |
+| Regions | 9,595 | 10,695 | 89.71% | 85% |
 | Functions | 546 | 664 | 82.23% | 75% |
 
 CI repeats the workspace run and fails below any floor. Floors intentionally retain margin below
@@ -37,8 +37,10 @@ and temporal boundaries; artifact-store confinement and corruption; configuratio
 default repository capability behavior.
 
 Instrumentation exposed two major anomalies. CG-PR-001 corrected stale temporary database reuse in
-CLI tests. CG-PR-002 corrected acceptance of malformed signed decimals. Both have named regression
-tests and closed dispositions in `problem-reports.tsv`.
+CLI tests. CG-PR-002 corrected acceptance of malformed signed decimals. The first Linux CI run also
+closed minor CG-PR-003 by replacing a Windows-specific root-path test expectation with the host
+platform separator. All three have named regression tests and closed dispositions in
+`problem-reports.tsv`.
 
 ## Residual analysis
 

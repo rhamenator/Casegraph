@@ -1,3 +1,4 @@
 id	status	severity	description	verification
 CG-PR-001	closed	major	Coverage instrumentation exposed stale temporary database reuse in CLI demo tests after process identifier reuse.	crates/casegraph-cli/src/lib.rs#cli_demo_exercises_complete_shared_service_flow
 CG-PR-002	closed	major	Robustness coverage exposed acceptance of decimals with a sign but no whole-number digits or repeated minus signs.	crates/casegraph-infrastructure/src/extractors.rs#normalization_covers_epistemic_boolean_temporal_numeric_and_text_values
+CG-PR-003	closed	minor	Linux CI exposed a Windows-specific root-path expectation in an artifact-store portability test.	crates/casegraph-infrastructure/src/artifact_store.rs#roots_digests_and_storage_keys_are_strictly_confined

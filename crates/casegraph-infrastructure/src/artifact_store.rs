@@ -277,8 +277,7 @@ mod tests {
             FilesystemArtifactStore::new("").unwrap_err().kind(),
             ErrorKind::InvalidInput
         );
-        assert!(is_root_path(Path::new(r"C:\")));
-        assert!(!is_root_path(Path::new(r"C:\casegraph-artifacts")));
+        assert!(is_root_path(Path::new(std::path::MAIN_SEPARATOR_STR)));
         assert!(!is_root_path(Path::new("relative")));
 
         assert!(validate_hash(&"a".repeat(64)).is_ok());

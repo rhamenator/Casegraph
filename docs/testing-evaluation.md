@@ -27,8 +27,8 @@ unqualified-tool boundary are controlled in `assurance/VERIFICATION_PLAN.md` and
 Install the controlled diagnostic tool with
 `cargo install cargo-llvm-cov --version 0.8.7 --locked`; the pinned Rust toolchain also needs the
 `llvm-tools-preview` component. The command above runs every workspace test under source-based
-instrumentation and enforces the same floors as CI. The current controlled run covers 93.37% of
-lines, 89.70% of regions, and 82.23% of functions, up from the initial 79.14%, 75.83%, and 66.73%
+instrumentation and enforces the same floors as CI. The current controlled run covers 93.39% of
+lines, 89.71% of regions, and 82.23% of functions, up from the initial 79.14%, 75.83%, and 66.73%
 baseline. Stable instrumentation reports no branch metric, so the result must not be described as
 decision or MC/DC coverage. Exact results and residuals are maintained with the assurance data.
 
