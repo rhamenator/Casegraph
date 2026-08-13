@@ -92,7 +92,7 @@ failures and health.
   evaluation thresholds, dependency audit where available, and the documented demo.
 - Reconcile every required deliverable and acceptance criterion against evidence from checks.
 
-### 7. DO-178C-aligned lifecycle controls — in progress
+### 7. DO-178C-aligned lifecycle controls — complete
 
 Capability: requirements-driven development and reviewable assurance evidence from the beginning of
 the maintained product lifecycle, without an unsupported certification claim.
