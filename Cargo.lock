@@ -95,6 +95,7 @@ dependencies = [
  "casegraph-domain",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -124,6 +125,7 @@ version = "0.1.0"
 dependencies = [
  "casegraph-application",
  "casegraph-domain",
+ "casegraph-sample-domain",
  "rusqlite",
  "serde",
  "serde_json",

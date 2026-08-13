@@ -1,7 +1,8 @@
 use crate::AppError;
 use casegraph_domain::{
     Artifact, ArtifactVersion, AuditEvent, Case, Claim, ClaimState, Contradiction, Correction,
-    Evidence, Fact, HumanReview, Observation, ProvenanceRecord, RecordId, Source, TimestampMs,
+    Evidence, Fact, GroundedClaim, HumanReview, Observation, ProvenanceRecord, RecordId, Rule,
+    RuleVersion, Source, TimestampMs, WorkflowMaterialization,
 };
 use serde::{Deserialize, Serialize};
 
@@ -123,6 +124,21 @@ pub struct CorrectionBundle {
     pub context: OperationContext,
 }
 
+/// Atomic rule identity/version registration.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegisterRuleBundle {
+    pub rule: Rule,
+    pub version: RuleVersion,
+    pub context: OperationContext,
+}
+
+/// Atomic evaluation and optional workflow materialization.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluationBundle {
+    pub materialization: WorkflowMaterialization,
+    pub context: OperationContext,
+}
+
 /// Durable evidence repository. Each mutating method is one database transaction.
 pub trait EvidenceRepository: Send + Sync {
     fn create_case(&self, bundle: &CreateCaseBundle) -> Result<Case, AppError>;
@@ -143,4 +159,34 @@ pub trait EvidenceRepository: Send + Sync {
     fn review_claim(&self, bundle: &ReviewBundle) -> Result<HumanReview, AppError>;
     fn correct_claim(&self, bundle: &CorrectionBundle) -> Result<Correction, AppError>;
     fn list_audit_events(&self, case_id: &RecordId) -> Result<Vec<AuditEvent>, AppError>;
+    fn register_rule(&self, _bundle: &RegisterRuleBundle) -> Result<RuleVersion, AppError> {
+        Err(AppError::new(
+            crate::ErrorKind::Unsupported,
+            "repository does not support rules",
+        ))
+    }
+    fn get_rule_version(
+        &self,
+        _rule_version_id: &RecordId,
+    ) -> Result<Option<RuleVersion>, AppError> {
+        Ok(None)
+    }
+    fn list_grounded_claims(&self, _case_id: &RecordId) -> Result<Vec<GroundedClaim>, AppError> {
+        Err(AppError::new(
+            crate::ErrorKind::Unsupported,
+            "repository does not support grounded claims",
+        ))
+    }
+    fn record_evaluation(
+        &self,
+        _bundle: &EvaluationBundle,
+    ) -> Result<WorkflowMaterialization, AppError> {
+        Err(AppError::new(
+            crate::ErrorKind::Unsupported,
+            "repository does not support rule evaluations",
+        ))
+    }
+    fn list_workflow(&self, _case_id: &RecordId) -> Result<Vec<WorkflowMaterialization>, AppError> {
+        Ok(Vec::new())
+    }
 }

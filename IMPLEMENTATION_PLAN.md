@@ -59,7 +59,7 @@ creation without an AI provider.
 - Measure extraction, normalization, provenance completeness, contradiction detection, and
   unsupported-claim rate on synthetic fixtures.
 
-### 4. Rules, workflow, grounding, and sample extension — in progress
+### 4. Rules, workflow, grounding, and sample extension — complete
 
 Invariants: rule evaluations are reproducible; workflow work preserves its causal explanation;
 case queries never invent case-specific facts; core behavior is independent of the sample package.
@@ -71,7 +71,7 @@ case queries never invent case-specific facts; core behavior is independent of t
 - Add the artificial sample domain package through a registry boundary and prove core startup/tests
   with it disabled.
 
-### 5. API, CLI, diagnostics, and end-to-end demonstration — pending
+### 5. API, CLI, diagnostics, and end-to-end demonstration — in progress
 
 Capability: shared application behavior through `/api/v1` and `casegraph`, with inspectable
 failures and health.

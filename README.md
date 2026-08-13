@@ -13,9 +13,11 @@ artifact storage; transactional case, ingestion, provenance, observation, claim,
 contradiction, verification, correction, and audit services; and checksummed SQLite migrations.
 The staged deterministic pipeline currently extracts simple UTF-8 `key: value` text, flat JSON,
 and CSV into provenance-backed claims without a model provider. A provider-neutral optional
-reasoning gateway enforces locality policy and strict output validation. Rules/workflow, grounded
-query, API/CLI operations, evaluation harness, and the end-to-end demonstration remain incomplete.
-It is not a production application and contains no production vertical.
+reasoning gateway enforces locality policy and strict output validation. A small versioned equality
+rules engine consumes verified facts and can atomically create evidence-linked obligations,
+deadlines, and tasks. Grounded querying emits explicit epistemic modes and citations. API/CLI
+operations, evaluation harness, and the documented runnable demonstration remain incomplete. It is
+not a production application and contains no production vertical.
 
 ## Architecture
 
@@ -28,6 +30,8 @@ See [architecture](docs/architecture.md), [implementation plan](IMPLEMENTATION_P
 [dependency register](docs/dependencies.md). Canonical terminology and evidence semantics are in
 [the glossary](docs/domain-model.md) and [provenance guide](docs/provenance.md).
 Extraction/provider contracts and current format limits are in [the pipeline guide](docs/extraction-pipeline.md).
+Rules, workflow causality, grounded answers, and domain extension are documented in
+[rules and workflow](docs/rules-workflow-query.md) and [domain packages](docs/domain-packages.md).
 
 ## Developer checks
 

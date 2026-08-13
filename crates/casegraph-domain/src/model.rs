@@ -1,4 +1,6 @@
-use crate::{DomainError, KnowledgeValue, RecordId, TemporalValue, TimestampMs};
+use crate::{
+    Date, DomainError, KnowledgeValue, RecordId, TemporalPrecision, TemporalValue, TimestampMs,
+};
 use serde::{Deserialize, Serialize};
 
 /// Explicit confidence only when a producer supplies a meaningful score.
@@ -413,6 +415,218 @@ pub enum EvidenceRelationship {
     AppliesTo,
     Satisfies,
     Produces,
+}
+
+/// Stable deterministic rule identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Rule {
+    pub id: RecordId,
+    pub package_id: String,
+    pub stable_key: String,
+    pub title: String,
+    pub created_at: TimestampMs,
+}
+
+/// Minimal declarative condition. The first cycle intentionally supports equality only.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuleCondition {
+    pub subject_key: String,
+    pub predicate: String,
+    pub expected: KnowledgeValue,
+}
+
+/// Workflow effect produced only by a satisfied evaluation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkflowEffect {
+    pub obligation_kind: String,
+    pub obligation_description: String,
+    pub deadline_anchor_predicate: String,
+    pub deadline_days_after: u32,
+    pub task_title: String,
+}
+
+/// Small versioned deterministic rule definition.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuleDefinition {
+    pub all: Vec<RuleCondition>,
+    pub effect: WorkflowEffect,
+}
+
+impl RuleDefinition {
+    /// Validate bounded, non-empty deterministic rule structure.
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if self.all.is_empty() || self.all.len() > 32 {
+            return Err(DomainError::new(
+                "rule.all",
+                "must contain between 1 and 32 conditions",
+            ));
+        }
+        for condition in &self.all {
+            validate_text("rule.subject_key", &condition.subject_key, 1, 300)?;
+            validate_text("rule.predicate", &condition.predicate, 1, 300)?;
+        }
+        validate_text("rule.obligation_kind", &self.effect.obligation_kind, 1, 200)?;
+        validate_text(
+            "rule.obligation_description",
+            &self.effect.obligation_description,
+            1,
+            1000,
+        )?;
+        validate_text(
+            "rule.deadline_anchor_predicate",
+            &self.effect.deadline_anchor_predicate,
+            1,
+            300,
+        )?;
+        validate_text("rule.task_title", &self.effect.task_title, 1, 500)
+    }
+}
+
+/// Immutable version of a rule definition.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuleVersion {
+    pub id: RecordId,
+    pub rule_id: RecordId,
+    pub version: u32,
+    pub definition: RuleDefinition,
+    pub definition_sha256: String,
+    pub effective_from: Option<Date>,
+    pub effective_until: Option<Date>,
+    pub created_at: TimestampMs,
+}
+
+/// Deterministic evaluation outcome.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleResult {
+    Satisfied,
+    NotSatisfied,
+    Indeterminate,
+}
+
+/// Exact normalized input used by a rule evaluation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuleInput {
+    pub claim_id: RecordId,
+    pub evidence_ids: Vec<RecordId>,
+    pub subject_key: String,
+    pub predicate: String,
+    pub value: KnowledgeValue,
+}
+
+/// Reproducible evaluation record.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuleEvaluation {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub rule_version_id: RecordId,
+    pub inputs: Vec<RuleInput>,
+    pub inputs_sha256: String,
+    pub result: RuleResult,
+    pub explanation: String,
+    pub evaluated_at: TimestampMs,
+    pub evaluator_version: String,
+    pub correlation_id: RecordId,
+}
+
+/// Explainable workflow obligation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Obligation {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub created_by_event_id: Option<RecordId>,
+    pub created_by_rule_evaluation_id: Option<RecordId>,
+    pub kind: String,
+    pub description: String,
+    pub status: ObligationStatus,
+    pub created_at: TimestampMs,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObligationStatus {
+    Open,
+    Satisfied,
+    Waived,
+    Expired,
+    Cancelled,
+}
+
+/// Imprecision-preserving due range and deterministic calculation snapshot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Deadline {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub obligation_id: RecordId,
+    pub due_earliest: Option<Date>,
+    pub due_latest: Option<Date>,
+    pub original_expression: String,
+    pub temporal_precision: TemporalPrecision,
+    pub calculation_json: String,
+    pub created_at: TimestampMs,
+}
+
+/// Minimal workflow task linked to its causal obligation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkflowTask {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub obligation_id: Option<RecordId>,
+    pub title: String,
+    pub status: TaskStatus,
+    pub created_at: TimestampMs,
+    pub completed_at: Option<TimestampMs>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
+    Ready,
+    InProgress,
+    Blocked,
+    Done,
+    Cancelled,
+}
+
+/// Complete workflow materialization caused by one evaluation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WorkflowMaterialization {
+    pub evaluation: RuleEvaluation,
+    pub obligation: Option<Obligation>,
+    pub deadline: Option<Deadline>,
+    pub task: Option<WorkflowTask>,
+}
+
+/// Current claim state and grounding links used by deterministic queries and rules.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GroundedClaim {
+    pub claim: Claim,
+    pub current_state: ClaimState,
+    pub provenance_id: Option<RecordId>,
+    pub evidence_ids: Vec<RecordId>,
+}
+
+/// Epistemic mode rendered by grounded querying.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnswerMode {
+    Established,
+    Claimed,
+    Suggested,
+    Conflicting,
+    Unknown,
+}
+
+/// A deterministic answer that cites only stored case evidence.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GroundedAnswer {
+    pub mode: AnswerMode,
+    pub statement: String,
+    pub claim_ids: Vec<RecordId>,
+    pub provenance_ids: Vec<RecordId>,
+    pub evidence_ids: Vec<RecordId>,
+    pub rule_evaluation_ids: Vec<RecordId>,
 }
 
 fn validate_text(

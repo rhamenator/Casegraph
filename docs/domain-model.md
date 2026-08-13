@@ -18,12 +18,12 @@ slice.
 | Event | A case occurrence with separate event/effective/reported/received temporal concepts. Service support is deferred. |
 | Evidence | A provenance-backed excerpt/field/attestation or a reproducible rule result. |
 | Contradiction | An append-only pairing of incompatible known claims. Both claims remain stored. |
-| Rule / RuleVersion | Stable rule identity and immutable deterministic definition version. Service support is next-slice work. |
-| RuleEvaluation | Reproducible input/result/explanation/evidence snapshot for an exact rule version. Service support is next-slice work. |
-| Obligation | Explainable required state created by an event or rule evaluation. Service support is next-slice work. |
-| Deadline | Imprecision-preserving due range/expression/calculation for an obligation. Service support is next-slice work. |
+| Rule / RuleVersion | Stable rule identity and immutable deterministic definition version. Equality conjunctions are implemented. |
+| RuleEvaluation | Reproducible input/result/explanation/evidence snapshot for an exact rule version. |
+| Obligation | Explainable required state created by an event or satisfied rule evaluation. Rule-created obligations are implemented. |
+| Deadline | Imprecision-preserving due range/expression/calculation for an obligation. Exact day-offset calculations are implemented. |
 | Case | Domain-neutral evidence and workflow container. |
-| Task | Work item that may satisfy an obligation and depend on other tasks. Service support is next-slice work. |
+| Task | Work item that may satisfy an obligation and depend on other tasks. Rule-created ready tasks are implemented; dependency mutation is deferred. |
 | Action / Outcome | Audited action and its recorded result. Service support is deferred within the workflow slice. |
 | HumanReview | Append-only human decision about a claim, contradiction, rule evaluation, or provenance. |
 | Correction | Link from an original claim to an appended corrected claim, review, rationale, actor, provenance, and affected derivations. |
@@ -54,4 +54,3 @@ producer provides a meaningful finite value from 0 through 1.
 
 Temporal knowledge can be an exact date, month, year, before/after bound, range, or unknown original
 expression. Ambiguity is never replaced with an invented time of day or exact date.
-

@@ -1,7 +1,7 @@
 use casegraph_application::{
-    CasegraphService, CorrectClaimRequest, CreateCaseRequest, ExtractArtifactRequest,
-    ExtractionPipeline, IdGenerator, IngestBytesRequest, PipelineStage, RecordExternalClaimRequest,
-    ReviewClaimRequest,
+    CasegraphService, CorrectClaimRequest, CreateCaseRequest, DomainPackage, EvaluateRuleRequest,
+    ExtractArtifactRequest, ExtractionPipeline, IdGenerator, IngestBytesRequest, PipelineStage,
+    RecordExternalClaimRequest, RegisterRuleRequest, ReviewClaimRequest, RuleWorkflowService,
 };
 use casegraph_domain::{
     Confidence, Decimal, KnowledgeValue, MaterialValue, Money, RecordId, ReviewDecision,
@@ -10,6 +10,7 @@ use casegraph_domain::{
 use casegraph_infrastructure::{
     CoreDeterministicExtractor, FilesystemArtifactStore, SqliteEvidenceRepository, SystemClock,
 };
+use casegraph_sample_domain::SampleAdministrativeCase;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,6 +32,7 @@ impl IdGenerator for SequenceIds {
 struct Fixture {
     root: PathBuf,
     service: CasegraphService,
+    rules: RuleWorkflowService,
 }
 
 impl Fixture {
@@ -47,15 +49,22 @@ impl Fixture {
         let artifact_store = Arc::new(
             FilesystemArtifactStore::new(root.join("artifacts")).expect("open artifact store"),
         );
+        let ids = Arc::new(SequenceIds::default());
+        let clock = Arc::new(SystemClock);
         let service = CasegraphService::new(
-            repository,
+            repository.clone(),
             artifact_store,
-            Arc::new(SystemClock),
-            Arc::new(SequenceIds::default()),
+            clock.clone(),
+            ids.clone(),
             1024 * 1024,
         )
         .expect("compose service");
-        Self { root, service }
+        let rules = RuleWorkflowService::new(repository, clock, ids);
+        Self {
+            root,
+            service,
+            rules,
+        }
     }
 
     fn create_case(&self) -> casegraph_domain::Case {
@@ -243,6 +252,17 @@ fn conflicting_claims_keep_provenance_and_correction_history() {
             .len(),
         1
     );
+    let conflict_answer = fixture
+        .rules
+        .query(&case_record.id, "What is the monthly_amount?")
+        .expect("grounded conflict answer");
+    assert_eq!(
+        conflict_answer.mode,
+        casegraph_domain::AnswerMode::Conflicting
+    );
+    assert_eq!(conflict_answer.claim_ids.len(), 2);
+    assert_eq!(conflict_answer.provenance_ids.len(), 2);
+    assert_eq!(conflict_answer.evidence_ids.len(), 2);
 
     let review = fixture
         .service
@@ -360,4 +380,134 @@ fn deterministic_pipeline_creates_provenance_without_any_model_provider() {
         assert_eq!(provenance.model_provider, None);
         assert_eq!(provenance.extraction_method, "deterministic");
     }
+}
+
+#[test]
+fn versioned_rule_materializes_explainable_workflow_and_is_reproducible() {
+    let fixture = Fixture::new();
+    let case_record = fixture.create_case();
+    let ingestion = fixture.ingest(
+        &case_record.id,
+        b"received_date: 2026-08-12\nresponse_required: true\n",
+    );
+    let pipeline = ExtractionPipeline::new(
+        fixture.service.clone(),
+        vec![Arc::new(CoreDeterministicExtractor)],
+    );
+    let extraction = pipeline
+        .extract(ExtractArtifactRequest {
+            case_id: case_record.id.clone(),
+            artifact_version_id: ingestion.artifact_version.id,
+            media_type: "text/plain".to_owned(),
+            connector: Some("filesystem".to_owned()),
+            actor: "system:deterministic-pipeline".to_owned(),
+            correlation_id: None,
+        })
+        .expect("extract fixture");
+    for claim in &extraction.claims {
+        fixture
+            .service
+            .review_claim(ReviewClaimRequest {
+                claim_id: claim.id.clone(),
+                decision: ReviewDecision::Verified,
+                actor: "human:synthetic-reviewer".to_owned(),
+                rationale: Some("Verified against invented fixture".to_owned()),
+                correlation_id: None,
+            })
+            .expect("verify fixture claim");
+    }
+
+    let package = SampleAdministrativeCase;
+    let contribution = package.rules().remove(0);
+    let rule_version = fixture
+        .rules
+        .register_rule(RegisterRuleRequest {
+            package_id: package.package_id().to_owned(),
+            stable_key: contribution.stable_key.to_owned(),
+            title: contribution.title.to_owned(),
+            version: contribution.version,
+            definition: contribution.definition,
+            effective_from: None,
+            effective_until: None,
+            actor: "system:sample-package".to_owned(),
+            correlation_id: None,
+        })
+        .expect("register sample rule");
+    let request = EvaluateRuleRequest {
+        case_id: case_record.id.clone(),
+        rule_version_id: rule_version.id,
+        actor: "system:deterministic-rules".to_owned(),
+        correlation_id: None,
+    };
+    let first = fixture
+        .rules
+        .evaluate(request.clone())
+        .expect("evaluate rule");
+    let second = fixture
+        .rules
+        .evaluate(request)
+        .expect("idempotent reevaluation");
+    assert_eq!(
+        first.evaluation.result,
+        casegraph_domain::RuleResult::Satisfied
+    );
+    assert_eq!(first.evaluation.id, second.evaluation.id);
+    assert_eq!(
+        first.evaluation.inputs_sha256,
+        second.evaluation.inputs_sha256
+    );
+    assert_eq!(
+        first
+            .deadline
+            .as_ref()
+            .and_then(|item| item.due_latest)
+            .map(|date| date.to_iso())
+            .as_deref(),
+        Some("2026-08-22")
+    );
+    assert_eq!(
+        first.task.as_ref().map(|task| task.title.as_str()),
+        Some("Prepare synthetic response")
+    );
+
+    let answer = fixture
+        .rules
+        .query(&case_record.id, "What deadlines and what must happen next?")
+        .expect("grounded workflow answer");
+    assert_eq!(answer.mode, casegraph_domain::AnswerMode::Established);
+    assert_eq!(
+        answer.rule_evaluation_ids,
+        vec![first.evaluation.id.clone()]
+    );
+    assert!(!answer.evidence_ids.is_empty());
+
+    let unknown = fixture
+        .rules
+        .query(&case_record.id, "What is the invented_color?")
+        .expect("grounded unknown answer");
+    assert_eq!(unknown.mode, casegraph_domain::AnswerMode::Unknown);
+    assert!(unknown.claim_ids.is_empty());
+
+    let empty_case = fixture
+        .service
+        .create_case(CreateCaseRequest {
+            title: "Synthetic Empty Case".to_owned(),
+            actor: "integration-test".to_owned(),
+            correlation_id: None,
+        })
+        .expect("create empty case");
+    let indeterminate = fixture
+        .rules
+        .evaluate(EvaluateRuleRequest {
+            case_id: empty_case.id,
+            rule_version_id: first.evaluation.rule_version_id,
+            actor: "system:deterministic-rules".to_owned(),
+            correlation_id: None,
+        })
+        .expect("missing inputs produce recorded indeterminate evaluation");
+    assert_eq!(
+        indeterminate.evaluation.result,
+        casegraph_domain::RuleResult::Indeterminate
+    );
+    assert!(indeterminate.task.is_none());
 }

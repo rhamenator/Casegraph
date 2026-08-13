@@ -3,18 +3,21 @@
 use crate::migrations;
 use casegraph_application::{
     AppError, ClaimBundle, ClaimResult, CorrectionBundle, CreateCaseBundle, ErrorKind,
-    EvidenceRepository, IngestionBundle, IngestionDisposition, IngestionResult, OperationContext,
-    ReviewBundle,
+    EvaluationBundle, EvidenceRepository, IngestionBundle, IngestionDisposition, IngestionResult,
+    OperationContext, RegisterRuleBundle, ReviewBundle,
 };
 use casegraph_domain::{
     Artifact, ArtifactVersion, AssertionOrigin, AuditEvent, Case, CaseStatus, Claim, ClaimState,
-    Confidence, Contradiction, ContradictionStatus, Correction, DetectionMethod, Evidence,
-    EvidenceType, Fact, HumanReview, KnowledgeValue, ProvenanceRecord, RecordId, ReviewDecision,
-    Source, TemporalValue, TimestampMs, VerificationState,
+    Confidence, Contradiction, ContradictionStatus, Correction, Date, Deadline, DetectionMethod,
+    Evidence, EvidenceType, Fact, GroundedClaim, HumanReview, KnowledgeValue, Obligation,
+    ObligationStatus, ProvenanceRecord, RecordId, ReviewDecision, RuleEvaluation, RuleResult,
+    RuleVersion, Source, TaskStatus, TemporalPrecision, TemporalValue, TimestampMs,
+    VerificationState, WorkflowMaterialization, WorkflowTask,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
@@ -585,6 +588,269 @@ impl EvidenceRepository for SqliteEvidenceRepository {
             });
         }
         Ok(events)
+    }
+
+    fn register_rule(&self, bundle: &RegisterRuleBundle) -> Result<RuleVersion, AppError> {
+        bundle.version.definition.validate()?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(database_error)?;
+        transaction
+            .execute(
+                "INSERT INTO rules(id, package_id, stable_key, title, created_at_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    bundle.rule.id.as_str(),
+                    bundle.rule.package_id,
+                    bundle.rule.stable_key,
+                    bundle.rule.title,
+                    bundle.rule.created_at.get(),
+                ],
+            )
+            .map_err(database_error)?;
+        transaction
+            .execute(
+                "INSERT INTO rule_versions( \
+                   id, rule_id, version, definition_json, definition_sha256, effective_from, \
+                   effective_until, created_at_ms \
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    bundle.version.id.as_str(),
+                    bundle.version.rule_id.as_str(),
+                    bundle.version.version,
+                    to_json(&bundle.version.definition)?,
+                    bundle.version.definition_sha256,
+                    bundle.version.effective_from.map(Date::to_iso),
+                    bundle.version.effective_until.map(Date::to_iso),
+                    bundle.version.created_at.get(),
+                ],
+            )
+            .map_err(database_error)?;
+        insert_audit(
+            &transaction,
+            &bundle.context,
+            None,
+            "rule.register",
+            "rule_version",
+            &bundle.version.id,
+            None,
+            &serde_json::json!({
+                "rule_id": bundle.rule.id,
+                "version": bundle.version.version,
+                "definition_sha256": bundle.version.definition_sha256,
+            }),
+        )?;
+        transaction.commit().map_err(database_error)?;
+        Ok(bundle.version.clone())
+    }
+
+    fn get_rule_version(
+        &self,
+        rule_version_id: &RecordId,
+    ) -> Result<Option<RuleVersion>, AppError> {
+        let connection = self.connection()?;
+        load_rule_version(&connection, rule_version_id)
+    }
+
+    fn list_grounded_claims(&self, case_id: &RecordId) -> Result<Vec<GroundedClaim>, AppError> {
+        let claims = self.list_claims(case_id)?;
+        let connection = self.connection()?;
+        let mut grounded = Vec::with_capacity(claims.len());
+        for claim in claims {
+            let state = connection
+                .query_row(
+                    "SELECT state FROM claim_state_changes WHERE claim_id = ?1 \
+                     ORDER BY changed_at_ms DESC, id DESC LIMIT 1",
+                    [claim.id.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(database_error)?
+                .map_or(Ok(claim.initial_state), |value| parse_claim_state(&value))?;
+            let mut statement = connection
+                .prepare(
+                    "SELECT to_id FROM evidence_edges \
+                     WHERE from_kind = 'claim' AND from_id = ?1 \
+                       AND relationship_type = 'supported_by' AND to_kind = 'evidence' \
+                     ORDER BY to_id",
+                )
+                .map_err(database_error)?;
+            let rows = statement
+                .query_map([claim.id.as_str()], |row| row.get::<_, String>(0))
+                .map_err(database_error)?;
+            let mut evidence_ids = Vec::new();
+            for row in rows {
+                evidence_ids.push(parse_id(row.map_err(database_error)?)?);
+            }
+            grounded.push(GroundedClaim {
+                provenance_id: claim.primary_provenance_id.clone(),
+                claim,
+                current_state: state,
+                evidence_ids,
+            });
+        }
+        Ok(grounded)
+    }
+
+    fn record_evaluation(
+        &self,
+        bundle: &EvaluationBundle,
+    ) -> Result<WorkflowMaterialization, AppError> {
+        let item = &bundle.materialization;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(database_error)?;
+        let existing_id = transaction
+            .query_row(
+                "SELECT id FROM rule_evaluations \
+                 WHERE case_id = ?1 AND rule_version_id = ?2 AND inputs_sha256 = ?3",
+                params![
+                    item.evaluation.case_id.as_str(),
+                    item.evaluation.rule_version_id.as_str(),
+                    item.evaluation.inputs_sha256,
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(database_error)?;
+        if let Some(existing_id) = existing_id {
+            return load_workflow(&transaction, &parse_id(existing_id)?);
+        }
+        transaction
+            .execute(
+                "INSERT INTO rule_evaluations( \
+                   id, case_id, rule_version_id, inputs_json, inputs_sha256, result, result_json, \
+                   explanation, evaluated_at_ms, evaluator_version, correlation_id \
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', ?7, ?8, ?9, ?10)",
+                params![
+                    item.evaluation.id.as_str(),
+                    item.evaluation.case_id.as_str(),
+                    item.evaluation.rule_version_id.as_str(),
+                    to_json(&item.evaluation.inputs)?,
+                    item.evaluation.inputs_sha256,
+                    rule_result(item.evaluation.result),
+                    item.evaluation.explanation,
+                    item.evaluation.evaluated_at.get(),
+                    item.evaluation.evaluator_version,
+                    item.evaluation.correlation_id.as_str(),
+                ],
+            )
+            .map_err(database_error)?;
+        let evidence_ids = item
+            .evaluation
+            .inputs
+            .iter()
+            .flat_map(|input| input.evidence_ids.iter())
+            .collect::<BTreeSet<_>>();
+        for evidence_id in evidence_ids {
+            transaction
+                .execute(
+                    "INSERT INTO rule_evaluation_evidence(rule_evaluation_id, evidence_id) \
+                     VALUES (?1, ?2)",
+                    params![item.evaluation.id.as_str(), evidence_id.as_str()],
+                )
+                .map_err(database_error)?;
+        }
+        if let Some(obligation) = &item.obligation {
+            transaction
+                .execute(
+                    "INSERT INTO obligations( \
+                       id, case_id, created_by_event_id, created_by_rule_evaluation_id, kind, \
+                       description, status, created_at_ms \
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        obligation.id.as_str(),
+                        obligation.case_id.as_str(),
+                        obligation
+                            .created_by_event_id
+                            .as_ref()
+                            .map(RecordId::as_str),
+                        obligation
+                            .created_by_rule_evaluation_id
+                            .as_ref()
+                            .map(RecordId::as_str),
+                        obligation.kind,
+                        obligation.description,
+                        obligation_status(obligation.status),
+                        obligation.created_at.get(),
+                    ],
+                )
+                .map_err(database_error)?;
+        }
+        if let Some(deadline) = &item.deadline {
+            transaction
+                .execute(
+                    "INSERT INTO deadlines( \
+                       id, case_id, obligation_id, due_earliest, due_latest, original_expression, \
+                       temporal_precision, calculation_json, created_at_ms \
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        deadline.id.as_str(),
+                        deadline.case_id.as_str(),
+                        deadline.obligation_id.as_str(),
+                        deadline.due_earliest.map(Date::to_iso),
+                        deadline.due_latest.map(Date::to_iso),
+                        deadline.original_expression,
+                        temporal_precision(deadline.temporal_precision),
+                        deadline.calculation_json,
+                        deadline.created_at.get(),
+                    ],
+                )
+                .map_err(database_error)?;
+        }
+        if let Some(task) = &item.task {
+            transaction
+                .execute(
+                    "INSERT INTO workflow_tasks( \
+                       id, case_id, obligation_id, title, status, created_at_ms, completed_at_ms \
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        task.id.as_str(),
+                        task.case_id.as_str(),
+                        task.obligation_id.as_ref().map(RecordId::as_str),
+                        task.title,
+                        task_status(task.status),
+                        task.created_at.get(),
+                        task.completed_at.map(TimestampMs::get),
+                    ],
+                )
+                .map_err(database_error)?;
+        }
+        insert_audit(
+            &transaction,
+            &bundle.context,
+            Some(&item.evaluation.case_id),
+            "rule.evaluate",
+            "rule_evaluation",
+            &item.evaluation.id,
+            None,
+            &serde_json::json!({
+                "rule_version_id": item.evaluation.rule_version_id,
+                "inputs_sha256": item.evaluation.inputs_sha256,
+                "result": item.evaluation.result,
+                "obligation_id": item.obligation.as_ref().map(|value| &value.id),
+                "deadline_id": item.deadline.as_ref().map(|value| &value.id),
+                "task_id": item.task.as_ref().map(|value| &value.id),
+            }),
+        )?;
+        transaction.commit().map_err(database_error)?;
+        Ok(item.clone())
+    }
+
+    fn list_workflow(&self, case_id: &RecordId) -> Result<Vec<WorkflowMaterialization>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id FROM rule_evaluations WHERE case_id = ?1 ORDER BY evaluated_at_ms, id",
+            )
+            .map_err(database_error)?;
+        let rows = statement
+            .query_map([case_id.as_str()], |row| row.get::<_, String>(0))
+            .map_err(database_error)?;
+        let mut items = Vec::new();
+        for row in rows {
+            let evaluation_id = parse_id(row.map_err(database_error)?)?;
+            items.push(load_workflow(&connection, &evaluation_id)?);
+        }
+        Ok(items)
     }
 }
 
@@ -1384,6 +1650,230 @@ fn load_contradiction(
     .transpose()
 }
 
+fn load_rule_version(
+    connection: &Connection,
+    version_id: &RecordId,
+) -> Result<Option<RuleVersion>, AppError> {
+    let raw = connection
+        .query_row(
+            "SELECT id, rule_id, version, definition_json, definition_sha256, effective_from, \
+                    effective_until, created_at_ms \
+             FROM rule_versions WHERE id = ?1",
+            [version_id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, u32>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(database_error)?;
+    raw.map(
+        |(id, rule_id, version, definition, hash, effective_from, effective_until, created_at)| {
+            let definition = from_json(&definition)?;
+            let item = RuleVersion {
+                id: parse_id(id)?,
+                rule_id: parse_id(rule_id)?,
+                version,
+                definition,
+                definition_sha256: hash,
+                effective_from: effective_from.as_deref().map(Date::parse_iso).transpose()?,
+                effective_until: effective_until
+                    .as_deref()
+                    .map(Date::parse_iso)
+                    .transpose()?,
+                created_at: timestamp(created_at)?,
+            };
+            item.definition.validate()?;
+            Ok(item)
+        },
+    )
+    .transpose()
+}
+
+fn load_workflow(
+    connection: &Connection,
+    evaluation_id: &RecordId,
+) -> Result<WorkflowMaterialization, AppError> {
+    let raw = connection
+        .query_row(
+            "SELECT id, case_id, rule_version_id, inputs_json, inputs_sha256, result, explanation, \
+                    evaluated_at_ms, evaluator_version, correlation_id \
+             FROM rule_evaluations WHERE id = ?1",
+            [evaluation_id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                ))
+            },
+        )
+        .map_err(database_error)?;
+    let evaluation = RuleEvaluation {
+        id: parse_id(raw.0)?,
+        case_id: parse_id(raw.1)?,
+        rule_version_id: parse_id(raw.2)?,
+        inputs: from_json(&raw.3)?,
+        inputs_sha256: raw.4,
+        result: parse_rule_result(&raw.5)?,
+        explanation: raw.6,
+        evaluated_at: timestamp(raw.7)?,
+        evaluator_version: raw.8,
+        correlation_id: parse_id(raw.9)?,
+    };
+    let obligation = load_obligation_for_evaluation(connection, evaluation_id)?;
+    let deadline = obligation
+        .as_ref()
+        .map(|item| load_deadline_for_obligation(connection, &item.id))
+        .transpose()?
+        .flatten();
+    let task = obligation
+        .as_ref()
+        .map(|item| load_task_for_obligation(connection, &item.id))
+        .transpose()?
+        .flatten();
+    Ok(WorkflowMaterialization {
+        evaluation,
+        obligation,
+        deadline,
+        task,
+    })
+}
+
+fn load_obligation_for_evaluation(
+    connection: &Connection,
+    evaluation_id: &RecordId,
+) -> Result<Option<Obligation>, AppError> {
+    let raw = connection
+        .query_row(
+            "SELECT id, case_id, created_by_event_id, created_by_rule_evaluation_id, kind, \
+                    description, status, created_at_ms \
+             FROM obligations WHERE created_by_rule_evaluation_id = ?1",
+            [evaluation_id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(database_error)?;
+    raw.map(|raw| {
+        Ok(Obligation {
+            id: parse_id(raw.0)?,
+            case_id: parse_id(raw.1)?,
+            created_by_event_id: raw.2.map(parse_id).transpose()?,
+            created_by_rule_evaluation_id: raw.3.map(parse_id).transpose()?,
+            kind: raw.4,
+            description: raw.5,
+            status: parse_obligation_status(&raw.6)?,
+            created_at: timestamp(raw.7)?,
+        })
+    })
+    .transpose()
+}
+
+fn load_deadline_for_obligation(
+    connection: &Connection,
+    obligation_id: &RecordId,
+) -> Result<Option<Deadline>, AppError> {
+    let raw = connection
+        .query_row(
+            "SELECT id, case_id, obligation_id, due_earliest, due_latest, original_expression, \
+                    temporal_precision, calculation_json, created_at_ms \
+             FROM deadlines WHERE obligation_id = ?1",
+            [obligation_id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(database_error)?;
+    raw.map(|raw| {
+        Ok(Deadline {
+            id: parse_id(raw.0)?,
+            case_id: parse_id(raw.1)?,
+            obligation_id: parse_id(raw.2)?,
+            due_earliest: raw.3.as_deref().map(Date::parse_iso).transpose()?,
+            due_latest: raw.4.as_deref().map(Date::parse_iso).transpose()?,
+            original_expression: raw.5,
+            temporal_precision: parse_temporal_precision(&raw.6)?,
+            calculation_json: raw.7,
+            created_at: timestamp(raw.8)?,
+        })
+    })
+    .transpose()
+}
+
+fn load_task_for_obligation(
+    connection: &Connection,
+    obligation_id: &RecordId,
+) -> Result<Option<WorkflowTask>, AppError> {
+    let raw = connection
+        .query_row(
+            "SELECT id, case_id, obligation_id, title, status, created_at_ms, completed_at_ms \
+             FROM workflow_tasks WHERE obligation_id = ?1",
+            [obligation_id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(database_error)?;
+    raw.map(|raw| {
+        Ok(WorkflowTask {
+            id: parse_id(raw.0)?,
+            case_id: parse_id(raw.1)?,
+            obligation_id: raw.2.map(parse_id).transpose()?,
+            title: raw.3,
+            status: parse_task_status(&raw.4)?,
+            created_at: timestamp(raw.5)?,
+            completed_at: raw.6.map(timestamp).transpose()?,
+        })
+    })
+    .transpose()
+}
+
 fn affected_rule_evaluations(
     transaction: &Transaction<'_>,
     claim_id: &RecordId,
@@ -1631,6 +2121,94 @@ fn parse_detection_method(value: &str) -> Result<DetectionMethod, AppError> {
         "automatic" => Ok(DetectionMethod::Automatic),
         "human" => Ok(DetectionMethod::Human),
         _ => Err(storage_enum("detection method")),
+    }
+}
+
+fn rule_result(value: RuleResult) -> &'static str {
+    match value {
+        RuleResult::Satisfied => "satisfied",
+        RuleResult::NotSatisfied => "not_satisfied",
+        RuleResult::Indeterminate => "indeterminate",
+    }
+}
+
+fn parse_rule_result(value: &str) -> Result<RuleResult, AppError> {
+    match value {
+        "satisfied" => Ok(RuleResult::Satisfied),
+        "not_satisfied" => Ok(RuleResult::NotSatisfied),
+        "indeterminate" => Ok(RuleResult::Indeterminate),
+        _ => Err(storage_enum("rule result")),
+    }
+}
+
+fn obligation_status(value: ObligationStatus) -> &'static str {
+    match value {
+        ObligationStatus::Open => "open",
+        ObligationStatus::Satisfied => "satisfied",
+        ObligationStatus::Waived => "waived",
+        ObligationStatus::Expired => "expired",
+        ObligationStatus::Cancelled => "cancelled",
+    }
+}
+
+fn parse_obligation_status(value: &str) -> Result<ObligationStatus, AppError> {
+    match value {
+        "open" => Ok(ObligationStatus::Open),
+        "satisfied" => Ok(ObligationStatus::Satisfied),
+        "waived" => Ok(ObligationStatus::Waived),
+        "expired" => Ok(ObligationStatus::Expired),
+        "cancelled" => Ok(ObligationStatus::Cancelled),
+        _ => Err(storage_enum("obligation status")),
+    }
+}
+
+fn temporal_precision(value: TemporalPrecision) -> &'static str {
+    match value {
+        TemporalPrecision::Instant => "instant",
+        TemporalPrecision::Day => "day",
+        TemporalPrecision::Month => "month",
+        TemporalPrecision::Year => "year",
+        TemporalPrecision::Before => "before",
+        TemporalPrecision::After => "after",
+        TemporalPrecision::Range => "range",
+        TemporalPrecision::Unknown => "unknown",
+    }
+}
+
+fn parse_temporal_precision(value: &str) -> Result<TemporalPrecision, AppError> {
+    match value {
+        "instant" => Ok(TemporalPrecision::Instant),
+        "day" => Ok(TemporalPrecision::Day),
+        "month" => Ok(TemporalPrecision::Month),
+        "year" => Ok(TemporalPrecision::Year),
+        "before" => Ok(TemporalPrecision::Before),
+        "after" => Ok(TemporalPrecision::After),
+        "range" => Ok(TemporalPrecision::Range),
+        "unknown" => Ok(TemporalPrecision::Unknown),
+        _ => Err(storage_enum("temporal precision")),
+    }
+}
+
+fn task_status(value: TaskStatus) -> &'static str {
+    match value {
+        TaskStatus::Pending => "pending",
+        TaskStatus::Ready => "ready",
+        TaskStatus::InProgress => "in_progress",
+        TaskStatus::Blocked => "blocked",
+        TaskStatus::Done => "done",
+        TaskStatus::Cancelled => "cancelled",
+    }
+}
+
+fn parse_task_status(value: &str) -> Result<TaskStatus, AppError> {
+    match value {
+        "pending" => Ok(TaskStatus::Pending),
+        "ready" => Ok(TaskStatus::Ready),
+        "in_progress" => Ok(TaskStatus::InProgress),
+        "blocked" => Ok(TaskStatus::Blocked),
+        "done" => Ok(TaskStatus::Done),
+        "cancelled" => Ok(TaskStatus::Cancelled),
+        _ => Err(storage_enum("task status")),
     }
 }
 
