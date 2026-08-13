@@ -1,0 +1,27 @@
+id	level	parent	status	derived	allocation_source	requirement
+CG-HLR-001	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The platform shall preserve every ingested artifact as immutable exact source bytes with stable content identity and append-only versions.
+CG-HLR-002	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The platform shall reject externally derived material claims unless their provenance can recover the source artifact version and location.
+CG-HLR-003	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The platform shall retain conflicting supported claims and materialize their disagreement without overwriting either claim.
+CG-HLR-004	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The platform shall preserve original assertions when a human correction creates a replacement assertion and shall identify affected rule evaluations.
+CG-HLR-005	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The core ingestion and evidence workflow shall operate deterministically without an AI provider.
+CG-HLR-006	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Optional reasoning shall enforce provider locality policy and reject malformed provider output before it reaches deterministic decision logic.
+CG-HLR-007	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Rule evaluations shall record exact versioned definitions and inputs so identical verified inputs reproduce the same result.
+CG-HLR-008	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Rule-created obligations deadlines and tasks shall retain the evaluation and evidence chain that caused their creation.
+CG-HLR-009	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Case-specific answers shall use explicit epistemic modes and cite only stored case evidence without supplying missing world knowledge.
+CG-HLR-010	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The versioned HTTP API and command line interface shall invoke the same application service boundaries.
+CG-HLR-011	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Persistence schema evolution shall be ordered checksummed repeatable and reject mutation of applied migrations.
+CG-HLR-012	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Runtime configuration and diagnostics shall default to bounded local operation and shall not disclose source content in failure events.
+CG-HLR-013	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The core shall operate without a vertical-domain package and shall accept domain behavior only through the extension contract.
+CG-HLR-014	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Material numeric monetary temporal and epistemic values shall retain exactness and represent uncertainty explicitly.
+CG-HLR-015	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Untrusted identifiers filenames and artifact sizes shall be validated before they reach storage boundaries.
+CG-HLR-016	HLR	-	verified	no	assurance/PLAN.md	The project shall maintain controlled requirements bidirectional implementation traces verification references configuration items and problem reports.
+CG-LLR-001	LLR	CG-HLR-001	verified	yes	CG-HLR-001	The artifact store shall address bytes by SHA-256 write atomically and reverify existing or retrieved bytes against their digest.
+CG-LLR-002	LLR	CG-HLR-001	verified	yes	CG-HLR-001	The database shall prevent update or deletion of artifact versions claims evidence reviews rule versions and evaluations.
+CG-LLR-003	LLR	CG-HLR-002	verified	yes	CG-HLR-002	Extracted fields shall retain their original representation and a field span or row and column source location.
+CG-LLR-004	LLR	CG-HLR-002	verified	yes	CG-HLR-002	Construction of an externally derived material claim shall fail when its provenance identifier is absent.
+CG-LLR-005	LLR	CG-HLR-006	verified	yes	CG-HLR-006	A malformed reasoning response shall create a content-minimized failure record and shall not expose the raw response.
+CG-LLR-006	LLR	CG-HLR-009	verified	yes	CG-HLR-009	A query with no supported stored assertion shall return unknown with no citations.
+CG-LLR-007	LLR	CG-HLR-007	verified	yes	CG-HLR-007	A rule evaluation shall persist deterministic hashes of its definition and canonical input snapshot.
+CG-LLR-008	LLR	CG-HLR-010	verified	yes	CG-HLR-010	The API shall serve a checked-in valid OpenAPI document describing the implemented versioned core routes.
+CG-LLR-009	LLR	CG-HLR-016	verified	yes	CG-HLR-016	Continuous integration shall validate assurance data formatting static analysis tests and migrations using controlled tool versions.
+CG-LLR-010	LLR	CG-HLR-016	verified	yes	CG-HLR-016	All Rust workspace crates shall forbid unsafe code and compile with warnings denied during static analysis.

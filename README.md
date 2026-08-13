@@ -5,9 +5,15 @@ that evidence to explain what happened, what matters, and what must happen next.
 
 > AI interprets ambiguity; deterministic software enforces invariants.
 
+Development follows a controlled, requirements-driven lifecycle tailored from DO-178C: uniquely
+identified requirements, bidirectional design/source/test traceability, requirements-based
+verification, configuration baselines, problem reporting, independent-review criteria, and SQA
+records. This is an engineering-quality framework, not an airborne certification or compliance
+claim; no DAL has been assigned. See [assurance data](assurance/README.md).
+
 ## Status
 
-Foundation implementation is in progress. Implemented capabilities include validated canonical
+The foundation baseline is implemented. Capabilities include validated canonical
 evidence types; exact decimal/money and uncertain temporal values; content-addressed immutable
 artifact storage; transactional case, ingestion, provenance, observation, claim, evidence,
 contradiction, verification, correction, and audit services; and checksummed SQLite migrations.
@@ -62,6 +68,7 @@ Run the loopback API with `cargo run -p casegraph-cli --locked -- serve`; its Op
 Install the pinned Rust toolchain, then run:
 
 ```console
+cargo run -p casegraph-assurance --locked
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked

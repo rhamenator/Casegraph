@@ -101,6 +101,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "casegraph-assurance"
+version = "0.1.0"
+
+[[package]]
 name = "casegraph-cli"
 version = "0.1.0"
 dependencies = [

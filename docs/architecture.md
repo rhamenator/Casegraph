@@ -34,6 +34,9 @@ missing case facts.
 
 ## Module boundaries
 
+- `casegraph-assurance`: dependency-free lifecycle-data validator for requirements, traceability,
+  configuration items, and problem reports. It is development tooling, not runtime code and not a
+  qualified verification tool.
 - `casegraph-domain`: canonical types, invariants, epistemic states, temporal uncertainty, and
   repository/provider ports. No adapter dependencies.
 - `casegraph-application`: transactions and use cases for ingestion, evidence, corrections, rules,

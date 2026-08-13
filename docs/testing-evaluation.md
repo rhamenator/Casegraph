@@ -3,6 +3,7 @@
 ## Quality gates
 
 ```console
+cargo run -p casegraph-assurance --locked
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
@@ -14,6 +15,10 @@ Tests include domain units, malformed input, application-service units, filesyst
 integrity, clean/upgrade/checksum migration tests, real SQLite/filesystem integration, real HTTP/1
 loopback API, CLI full demo, package isolation, optional-model policy/schema rejection, and doc
 tests. Fixtures contain invented names, records, dates, and amounts only.
+
+Named tests are mapped to controlled requirements in `assurance/traceability.tsv`. The verification
+policy, independence criteria, robustness expectations, DAL-dependent structural-coverage gap, and
+unqualified-tool boundary are controlled in `assurance/VERIFICATION_PLAN.md`.
 
 ## Evaluation harness
 
@@ -34,4 +39,3 @@ expectations for a deliberately simple fixture set, not a claim of general docum
 
 Future model-assisted extractors must add failure examples, expected entities/dates/amounts/claims,
 model identity/configuration, and provider-policy test coverage before comparison.
-

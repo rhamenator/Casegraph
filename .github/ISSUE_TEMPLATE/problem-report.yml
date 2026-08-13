@@ -1,0 +1,42 @@
+name: Controlled problem report
+description: Record an anomaly, lifecycle nonconformance, tool issue, or escaped defect.
+title: "[CG-PR] "
+labels: [problem-report]
+body:
+  - type: markdown
+    attributes:
+      value: Assign the next CG-PR-NNN identifier in assurance/problem-reports.tsv when triaged.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: State the exact condition, expected result, actual result, and reproducible evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact analysis
+      description: Identify affected requirements, baselines, evidence, safety/security/data implications, and possible unintended function.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Configuration and environment
+      description: Provide immutable commit/tag, tool versions, target, inputs, and relevant configuration without secrets or source content.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity
+      options: [critical, major, minor]
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Proposed verification and closure evidence
+    validations:
+      required: true

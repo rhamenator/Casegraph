@@ -92,6 +92,17 @@ failures and health.
   evaluation thresholds, dependency audit where available, and the documented demo.
 - Reconcile every required deliverable and acceptance criterion against evidence from checks.
 
+### 7. DO-178C-aligned lifecycle controls — in progress
+
+Capability: requirements-driven development and reviewable assurance evidence from the beginning of
+the maintained product lifecycle, without an unsupported certification claim.
+
+- Establish tailored assurance, verification, configuration-management, quality-assurance, and
+  lifecycle standards with explicit DAL/certification transition gates.
+- Baseline identified HLRs/LLRs and bidirectional design/source/test traces for implemented behavior.
+- Control configuration items and problem reports, add contribution/review records, and pin CI tools.
+- Add a dependency-free assurance-data validator and enforce it in CI.
+
 ## Explicitly deferred unless a foundational requirement forces them
 
 - OCR, PDF layout extraction, DOCX/XLSX, non-filesystem connectors, remote model integrations,

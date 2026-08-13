@@ -30,7 +30,7 @@ applicable, and encrypted storage/key management.
 - Secrets use environment configuration and `.env` is ignored; the checked-in example has no
   secrets. No cloud credentials are required.
 - Dependency versions are exact and locked; features and licenses are documented; CI uses locked
-  builds and Dependabot proposes reviewable updates.
+  builds, actions are commit-pinned, and Dependabot proposes reviewable updates.
 
 ## Threats and residual risks
 
@@ -54,4 +54,3 @@ applicable, and encrypted storage/key management.
 
 Casegraph makes no claim of security certification, regulatory compliance, or suitability for
 legally/medically/financially consequential autonomous action.
-

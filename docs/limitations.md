@@ -1,5 +1,11 @@
 # Limitations and out-of-scope items
 
+Casegraph applies a tailored DO-178C-aligned engineering lifecycle, but it has no airborne system
+allocation, safety assessment, DAL, certification authority agreement, formally independent
+verification, qualified tools, target-computer evidence, or structural/object-code coverage claim.
+It is not DO-178C compliant or certified; the controlled transition gates are documented under
+`assurance/`.
+
 ## Responsibly deferred foundation gaps
 
 - PostgreSQL adapter and PostgreSQL migration path. SQLite was chosen for the user's low-dependency,
@@ -30,4 +36,3 @@ There is no benefits, medical, insurance, financial, legal, compliance, or gover
 advice; no automated filing/payment/submission; no foundation-model training; no autonomous agent;
 no microservices/Kubernetes/message broker/graph/vector database; and no claim of perfect OCR,
 enterprise identity, or production compliance.
-

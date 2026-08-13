@@ -9,6 +9,7 @@
 ## Build and verify
 
 ```console
+cargo run -p casegraph-assurance --locked
 cargo build --workspace --locked
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -40,3 +41,11 @@ cargo test -p casegraph-infrastructure migrations --locked
 
 Never edit an applied migration. Add the next numbered migration and an upgrade-path test.
 
+## Controlled change lifecycle
+
+All behavior changes follow [the assurance plan](../assurance/PLAN.md) and
+[contribution procedure](../CONTRIBUTING.md). Identify the authorizing requirement/problem report,
+update derived requirements and traceability, add requirements-based verification, assess
+configuration and tool impact, and obtain independent review before calling a release an assurance
+baseline. CI validates the controlled data, but semantic review remains mandatory because no tool
+qualification credit is claimed.

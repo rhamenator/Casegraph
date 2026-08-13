@@ -16,7 +16,8 @@ signals, security considerations, and removal cost.
 | `tokio` | 1.53.1 | MIT | Runtime required by Axum. Only macros, networking, multithreaded runtime, and signal handling are enabled. |
 
 The CLI, identifier generation, temporal primitives, rule evaluation, configuration, diagnostics,
-and evaluation harness intentionally use the standard library and local crates.
+evaluation harness, and assurance-data validator intentionally use the standard library and local
+crates.
 
 Review sources: each crate's crates.io metadata, upstream repository, published license, selected
 feature graph (`cargo info --verbose`), and the resolved `cargo tree`/`Cargo.lock`. CI runs locked.
@@ -27,3 +28,6 @@ MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0, LLVM exception, or Unlicense terms c
 GPL-3.0-only project. That total is a tracked cost: dependency reductions are preferred and any
 increase must be justified.
 
+GitHub Actions are pinned to immutable commit SHAs in CI. Dependabot may propose updates, but an
+update requires configuration/tool impact analysis, review, and a green exact-revision run. Pinned
+versions provide configuration identity; they do not constitute DO-330 qualification.

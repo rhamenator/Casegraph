@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/casegraph-assurance",
     "crates/casegraph-domain",
     "crates/casegraph-application",
     "crates/casegraph-infrastructure",
@@ -30,4 +31,3 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 dbg_macro = "deny"
 todo = "deny"
-
