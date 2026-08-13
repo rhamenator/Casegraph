@@ -1,0 +1,15 @@
+[package]
+name = "casegraph-sample-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+casegraph-application = { path = "../casegraph-application" }
+casegraph-domain = { path = "../casegraph-domain" }
+
+[lints]
+workspace = true
+

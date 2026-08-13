@@ -1,0 +1,5 @@
+[build]
+# Some Windows/network volumes cannot atomically finalize rustc incremental state. Disabling it
+# removes nondeterministic access-denied warnings; normal Cargo artifact caching remains enabled.
+incremental = false
+

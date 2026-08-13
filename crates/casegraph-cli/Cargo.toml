@@ -1,0 +1,24 @@
+[package]
+name = "casegraph-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "casegraph"
+path = "src/main.rs"
+
+[dependencies]
+casegraph-api = { path = "../casegraph-api" }
+casegraph-application = { path = "../casegraph-application" }
+casegraph-domain = { path = "../casegraph-domain" }
+casegraph-infrastructure = { path = "../casegraph-infrastructure" }
+casegraph-sample-domain = { path = "../casegraph-sample-domain" }
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
+
