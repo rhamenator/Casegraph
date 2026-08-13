@@ -83,7 +83,7 @@ failures and health.
 - Add correlation-aware structured diagnostics plus liveness and dependency-aware readiness.
 - Add API and CLI contract tests and a runnable synthetic end-to-end scenario.
 
-### 6. Verification and handoff — in progress
+### 6. Verification and handoff — complete
 
 - Complete README, setup, glossary, provenance/evidence semantics, pipeline contracts, extension
   guide, API/CLI guide, testing/evaluation guide, security/privacy/threat assumptions, operations,
