@@ -596,11 +596,16 @@ fn validate_filename(filename: Option<&str>) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CasegraphService, CreateCaseRequest, IngestBytesRequest};
-    use crate::{AppError, ArtifactStore, Clock, EvidenceRepository, IdGenerator, StoredArtifact};
+    use super::{
+        CasegraphService, CorrectClaimRequest, CreateCaseRequest, IngestBytesRequest,
+        ReviewClaimRequest,
+    };
+    use crate::{
+        AppError, ArtifactStore, Clock, ErrorKind, EvidenceRepository, IdGenerator, StoredArtifact,
+    };
     use casegraph_domain::{
-        ArtifactVersion, AuditEvent, Case, Claim, Contradiction, Correction, HumanReview, RecordId,
-        TimestampMs,
+        ArtifactVersion, AuditEvent, Case, Claim, Contradiction, Correction, HumanReview,
+        KnowledgeValue, RecordId, ReviewDecision, TimestampMs,
     };
     use std::sync::{Arc, Mutex};
 
@@ -815,5 +820,100 @@ mod tests {
             correlation_id: None,
         };
         assert!(service.ingest_bytes(request).is_err());
+    }
+
+    #[test]
+    fn constructor_and_missing_resource_boundaries_fail_closed() {
+        let repository = Arc::new(MemoryRepository::default());
+        let artifacts = Arc::new(MemoryArtifacts);
+        let clock = Arc::new(FixedClock);
+        let ids = Arc::new(SequenceIds(Mutex::new(0)));
+        let zero_limit = CasegraphService::new(
+            repository.clone(),
+            artifacts.clone(),
+            clock.clone(),
+            ids.clone(),
+            0,
+        );
+        assert!(matches!(
+            zero_limit,
+            Err(ref error) if error.kind() == ErrorKind::InvalidInput
+        ));
+        let service =
+            CasegraphService::new(repository, artifacts, clock, ids, 8).expect("service fixture");
+        let case_id = RecordId::parse("case_missing").expect("fixture id");
+        let version_id = RecordId::parse("artifact_version_missing").expect("fixture id");
+        let claim_id = RecordId::parse("claim_missing").expect("fixture id");
+        let provenance_id = RecordId::parse("provenance_missing").expect("fixture id");
+
+        assert_eq!(
+            service.get_case(&case_id).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            service
+                .get_artifact_version(&version_id)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            service
+                .read_artifact_version(&version_id)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(
+            service.get_provenance(&provenance_id).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        assert!(service.list_artifact_versions(&case_id).unwrap().is_empty());
+        assert!(service.list_claims(&case_id).unwrap().is_empty());
+        assert!(service.list_contradictions(&case_id).unwrap().is_empty());
+        assert!(service.list_audit_events(&case_id).unwrap().is_empty());
+
+        let ingest_error = service
+            .ingest_bytes(IngestBytesRequest {
+                case_id,
+                source_key: "fixture.txt".to_owned(),
+                connector: "filesystem".to_owned(),
+                locator: "fixture.txt".to_owned(),
+                external_record_id: None,
+                endpoint: None,
+                source_revision: None,
+                media_type: "text/plain".to_owned(),
+                original_filename: None,
+                received_at: None,
+                bytes: b"fixture".to_vec(),
+                actor: "test".to_owned(),
+                correlation_id: None,
+            })
+            .expect_err("missing case must fail before storage");
+        assert_eq!(ingest_error.kind(), ErrorKind::NotFound);
+
+        let review_error = service
+            .review_claim(ReviewClaimRequest {
+                claim_id: claim_id.clone(),
+                decision: ReviewDecision::Verified,
+                actor: "test".to_owned(),
+                rationale: None,
+                correlation_id: None,
+            })
+            .expect_err("missing claim cannot be reviewed");
+        assert_eq!(review_error.kind(), ErrorKind::NotFound);
+
+        let correction_error = service
+            .correct_claim(CorrectClaimRequest {
+                claim_id,
+                corrected_original_representation: "fixture".to_owned(),
+                corrected_value: KnowledgeValue::Unknown,
+                corrected_temporal: None,
+                actor: "test".to_owned(),
+                rationale: None,
+                correlation_id: None,
+            })
+            .expect_err("missing claim cannot be corrected");
+        assert_eq!(correction_error.kind(), ErrorKind::NotFound);
     }
 }

@@ -76,6 +76,9 @@ mod tests {
         let money = Money::new(amount, "USD").expect("money");
         assert_eq!(money.amount.coefficient, 142_700);
         assert!(Money::new(amount, "usd").is_err());
+        assert!(Money::new(amount, "US").is_err());
+        assert!(Money::new(amount, "US1").is_err());
+        assert!(Decimal::new(1, 19).is_err());
     }
 
     #[test]

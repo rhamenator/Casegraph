@@ -246,3 +246,56 @@ impl ExtractionPipeline {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_classification_is_exact_bounded_and_parameter_tolerant() {
+        assert_eq!(
+            ArtifactFormat::classify("text/plain; charset=utf-8"),
+            Ok(ArtifactFormat::PlainText)
+        );
+        assert_eq!(
+            ArtifactFormat::classify(" application/json "),
+            Ok(ArtifactFormat::Json)
+        );
+        for media_type in ["text/csv", "application/csv"] {
+            assert_eq!(
+                ArtifactFormat::classify(media_type),
+                Ok(ArtifactFormat::Csv)
+            );
+        }
+        for media_type in ["", "TEXT/PLAIN", "application/pdf", "text/plainish"] {
+            let error = ArtifactFormat::classify(media_type).unwrap_err();
+            assert_eq!(error.kind, PipelineFailureKind::UnsupportedFormat);
+            assert!(!error.retryable);
+        }
+    }
+
+    #[test]
+    fn application_errors_map_to_safe_pipeline_categories_and_retry_policy() {
+        let invalid = PipelineError::from(AppError::new(ErrorKind::InvalidInput, "invalid"));
+        assert_eq!(invalid.kind, PipelineFailureKind::ValidationRejected);
+        assert_eq!(invalid.safe_message, "invalid");
+        assert!(!invalid.retryable);
+
+        let storage = PipelineError::from(AppError::new(ErrorKind::Storage, "storage"));
+        assert_eq!(storage.kind, PipelineFailureKind::Internal);
+        assert_eq!(storage.safe_message, "storage");
+        assert!(storage.retryable);
+
+        for kind in [
+            ErrorKind::NotFound,
+            ErrorKind::Conflict,
+            ErrorKind::Unsupported,
+            ErrorKind::TooLarge,
+            ErrorKind::Internal,
+        ] {
+            let mapped = PipelineError::from(AppError::new(kind, "safe"));
+            assert_eq!(mapped.kind, PipelineFailureKind::Internal);
+            assert!(!mapped.retryable);
+        }
+    }
+}

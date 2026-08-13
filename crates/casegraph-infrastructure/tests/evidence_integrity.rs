@@ -149,6 +149,55 @@ impl Drop for Fixture {
     }
 }
 
+fn extract_and_verify(fixture: &Fixture, case_id: &RecordId, bytes: &[u8]) {
+    let ingestion = fixture.ingest(case_id, bytes);
+    let pipeline = ExtractionPipeline::new(
+        fixture.service.clone(),
+        vec![Arc::new(CoreDeterministicExtractor)],
+    );
+    let extraction = pipeline
+        .extract(ExtractArtifactRequest {
+            case_id: case_id.clone(),
+            artifact_version_id: ingestion.artifact_version.id,
+            media_type: "text/plain".to_owned(),
+            connector: Some("filesystem".to_owned()),
+            actor: "system:deterministic-pipeline".to_owned(),
+            correlation_id: None,
+        })
+        .expect("extract rule fixture");
+    for claim in extraction.claims {
+        fixture
+            .service
+            .review_claim(ReviewClaimRequest {
+                claim_id: claim.id,
+                decision: ReviewDecision::Verified,
+                actor: "human:synthetic-reviewer".to_owned(),
+                rationale: Some("Verified invented rule fixture".to_owned()),
+                correlation_id: None,
+            })
+            .expect("verify rule fixture claim");
+    }
+}
+
+fn register_sample_rule(fixture: &Fixture) -> casegraph_domain::RuleVersion {
+    let package = SampleAdministrativeCase;
+    let contribution = package.rules().remove(0);
+    fixture
+        .rules
+        .register_rule(RegisterRuleRequest {
+            package_id: package.package_id().to_owned(),
+            stable_key: contribution.stable_key.to_owned(),
+            title: contribution.title.to_owned(),
+            version: contribution.version,
+            definition: contribution.definition,
+            effective_from: None,
+            effective_until: None,
+            actor: "system:sample-package".to_owned(),
+            correlation_id: None,
+        })
+        .expect("register sample rule")
+}
+
 #[test]
 fn immutable_ingestion_distinguishes_duplicate_from_new_version() {
     let fixture = Fixture::new();
@@ -533,4 +582,134 @@ fn versioned_rule_materializes_explainable_workflow_and_is_reproducible() {
         casegraph_domain::RuleResult::Indeterminate
     );
     assert!(indeterminate.task.is_none());
+}
+
+#[test]
+fn rule_evaluation_fails_closed_for_false_missing_and_superseding_evidence() {
+    let fixture = Fixture::new();
+    let version = register_sample_rule(&fixture);
+
+    let false_case = fixture.create_case();
+    extract_and_verify(
+        &fixture,
+        &false_case.id,
+        b"received_date: 2026-08-12\nresponse_required: false\n",
+    );
+    let not_satisfied = fixture
+        .rules
+        .evaluate(EvaluateRuleRequest {
+            case_id: false_case.id.clone(),
+            rule_version_id: version.id.clone(),
+            actor: "system:deterministic-rules".to_owned(),
+            correlation_id: None,
+        })
+        .expect("false condition produces a recorded evaluation");
+    assert_eq!(
+        not_satisfied.evaluation.result,
+        casegraph_domain::RuleResult::NotSatisfied
+    );
+    assert!(not_satisfied.task.is_none());
+    assert!(
+        not_satisfied
+            .evaluation
+            .explanation
+            .contains("response_required")
+    );
+
+    let missing_anchor_case = fixture.create_case();
+    extract_and_verify(
+        &fixture,
+        &missing_anchor_case.id,
+        b"response_required: true\n",
+    );
+    let missing_anchor = fixture
+        .rules
+        .evaluate(EvaluateRuleRequest {
+            case_id: missing_anchor_case.id,
+            rule_version_id: version.id.clone(),
+            actor: "system:deterministic-rules".to_owned(),
+            correlation_id: None,
+        })
+        .expect("missing anchor produces a recorded evaluation");
+    assert_eq!(
+        missing_anchor.evaluation.result,
+        casegraph_domain::RuleResult::Indeterminate
+    );
+    assert!(
+        missing_anchor
+            .evaluation
+            .explanation
+            .contains("deadline anchor")
+    );
+
+    let disagreeing_condition_case = fixture.create_case();
+    extract_and_verify(
+        &fixture,
+        &disagreeing_condition_case.id,
+        b"received_date: 2026-08-12\nresponse_required: true\n",
+    );
+    extract_and_verify(
+        &fixture,
+        &disagreeing_condition_case.id,
+        b"received_date: 2026-08-12\nresponse_required: false\n",
+    );
+    let disagreement = fixture
+        .rules
+        .evaluate(EvaluateRuleRequest {
+            case_id: disagreeing_condition_case.id,
+            rule_version_id: version.id.clone(),
+            actor: "system:deterministic-rules".to_owned(),
+            correlation_id: None,
+        })
+        .expect("disagreement produces a recorded evaluation");
+    assert_eq!(
+        disagreement.evaluation.result,
+        casegraph_domain::RuleResult::NotSatisfied,
+        "the repository exposes only the later reviewed value as currently verified"
+    );
+
+    let disagreeing_dates_case = fixture.create_case();
+    extract_and_verify(
+        &fixture,
+        &disagreeing_dates_case.id,
+        b"received_date: 2026-08-12\nresponse_required: true\n",
+    );
+    extract_and_verify(
+        &fixture,
+        &disagreeing_dates_case.id,
+        b"received_date: 2026-08-13\nresponse_required: true\n",
+    );
+    let date_disagreement = fixture
+        .rules
+        .evaluate(EvaluateRuleRequest {
+            case_id: disagreeing_dates_case.id,
+            rule_version_id: version.id.clone(),
+            actor: "system:deterministic-rules".to_owned(),
+            correlation_id: None,
+        })
+        .expect("date disagreement produces a recorded evaluation");
+    assert_eq!(
+        date_disagreement.evaluation.result,
+        casegraph_domain::RuleResult::Satisfied,
+        "the later reviewed date is authoritative while the contradiction remains recorded"
+    );
+    assert_eq!(
+        date_disagreement
+            .deadline
+            .and_then(|deadline| deadline.due_latest)
+            .map(|date| date.to_iso())
+            .as_deref(),
+        Some("2026-08-23")
+    );
+
+    let absent = fixture.rules.evaluate(EvaluateRuleRequest {
+        case_id: false_case.id,
+        rule_version_id: RecordId::parse("rule_version_absent").expect("fixture id"),
+        actor: "system:deterministic-rules".to_owned(),
+        correlation_id: None,
+    });
+    assert_eq!(
+        absent.expect_err("unknown version must fail").kind(),
+        casegraph_application::ErrorKind::NotFound
+    );
 }

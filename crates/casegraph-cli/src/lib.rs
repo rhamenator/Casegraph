@@ -441,18 +441,16 @@ fn help() -> &'static str {
 mod tests {
     use super::{Services, media_type};
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn cli_demo_exercises_complete_shared_service_flow() {
-        let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "casegraph-cli-demo-{}-{sequence}",
-            std::process::id()
-        ));
-        let services = Services::open(&root, 1024 * 1024).expect("services");
+        let root = TestDirectory::new("casegraph-cli-demo");
+        let services = Services::open(root.path(), 1024 * 1024).expect("services");
         let result = super::run_demo(&services).expect("demo");
         assert_eq!(result["model_provider_used"], false);
         assert_eq!(result["grounded_answer"]["mode"], "established");
@@ -462,7 +460,6 @@ mod tests {
                 .is_some_and(|items| !items.is_empty())
         );
         assert!(result["task"].is_object());
-        fs::remove_dir_all(root).ok();
     }
 
     #[test]
@@ -472,5 +469,39 @@ mod tests {
             media_type(std::path::Path::new("fixture.exe")),
             "application/octet-stream"
         );
+    }
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(prefix: &str) -> Self {
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("test clock after epoch")
+                .as_nanos();
+            for _ in 0..100 {
+                let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir().join(format!(
+                    "{prefix}-{}-{timestamp}-{sequence}",
+                    std::process::id()
+                ));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create isolated test directory: {error}"),
+                }
+            }
+            panic!("could not allocate an isolated test directory")
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).ok();
+        }
     }
 }

@@ -64,8 +64,8 @@ impl IdGenerator for Sha256IdGenerator {
 
 #[cfg(test)]
 mod tests {
-    use super::Sha256IdGenerator;
-    use casegraph_application::IdGenerator;
+    use super::{Sha256IdGenerator, SystemClock};
+    use casegraph_application::{Clock, ErrorKind, IdGenerator};
     use std::collections::HashSet;
 
     #[test]
@@ -76,5 +76,28 @@ mod tests {
             .collect::<HashSet<_>>();
         assert_eq!(ids.len(), 1_000);
         assert!(ids.iter().all(|id| id.starts_with("claim_")));
+    }
+
+    #[test]
+    fn system_clock_produces_a_non_negative_timestamp() {
+        assert!(SystemClock.now().expect("system time").get() > 0);
+    }
+
+    #[test]
+    fn identifier_kinds_are_strictly_bounded_internal_vocabulary() {
+        let generator = Sha256IdGenerator::default();
+        for kind in [
+            "",
+            "UPPER",
+            "contains-hyphen",
+            "contains digit 1",
+            "a_kind_name_that_is_over_thirty_characters",
+        ] {
+            assert_eq!(
+                generator.next(kind).unwrap_err().kind(),
+                ErrorKind::Internal
+            );
+        }
+        assert!(generator.next("rule_version").is_ok());
     }
 }

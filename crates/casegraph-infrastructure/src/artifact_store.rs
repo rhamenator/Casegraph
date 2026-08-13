@@ -210,10 +210,12 @@ fn is_root_path(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::FilesystemArtifactStore;
-    use casegraph_application::ArtifactStore;
+    use super::{
+        FilesystemArtifactStore, hash_from_storage_key, is_root_path, storage_error, validate_hash,
+    };
+    use casegraph_application::{ArtifactStore, ErrorKind};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -267,5 +269,76 @@ mod tests {
         assert!(store.put(b"original").is_err());
         assert!(store.read(&stored.storage_key).is_err());
         fs::remove_dir_all(&root).expect("remove isolated test directory");
+    }
+
+    #[test]
+    fn roots_digests_and_storage_keys_are_strictly_confined() {
+        assert_eq!(
+            FilesystemArtifactStore::new("").unwrap_err().kind(),
+            ErrorKind::InvalidInput
+        );
+        assert!(is_root_path(Path::new(std::path::MAIN_SEPARATOR_STR)));
+        assert!(!is_root_path(Path::new("relative")));
+
+        assert!(validate_hash(&"a".repeat(64)).is_ok());
+        for invalid in [
+            "a".repeat(63),
+            "a".repeat(65),
+            "A".repeat(64),
+            "g".repeat(64),
+        ] {
+            assert_eq!(
+                validate_hash(&invalid).unwrap_err().kind(),
+                ErrorKind::InvalidInput
+            );
+        }
+
+        let hash = "a".repeat(64);
+        let valid_key = format!("blobs/aa/{hash}");
+        assert_eq!(hash_from_storage_key(&valid_key), Ok(hash.as_str()));
+        let wrong_prefix = format!("blobs/ff/{hash}");
+        assert!(
+            hash_from_storage_key(&wrong_prefix)
+                .unwrap_err()
+                .safe_message()
+                .contains("prefix")
+        );
+        for malformed in [
+            format!("other/aa/{hash}"),
+            format!("blobs/aa-{hash}"),
+            format!("blobs/aa/{}", "A".repeat(64)),
+        ] {
+            assert_eq!(
+                hash_from_storage_key(&malformed).unwrap_err().kind(),
+                ErrorKind::InvalidInput
+            );
+        }
+
+        let mapped = storage_error("exercise synthetic failure");
+        assert_eq!(mapped.kind(), ErrorKind::Storage);
+        assert_eq!(
+            mapped.safe_message(),
+            "could not exercise synthetic failure"
+        );
+    }
+
+    #[test]
+    fn missing_content_and_non_directory_roots_fail_with_stable_categories() {
+        let root = test_directory();
+        let store = FilesystemArtifactStore::new(&root).expect("store");
+        let missing = format!("blobs/aa/{}", "a".repeat(64));
+        assert_eq!(
+            store.read(&missing).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        fs::remove_dir_all(&root).expect("remove isolated test directory");
+
+        let file_root = test_directory();
+        fs::write(&file_root, b"not a directory").expect("create file root fixture");
+        assert_eq!(
+            FilesystemArtifactStore::new(&file_root).unwrap_err().kind(),
+            ErrorKind::Storage
+        );
+        fs::remove_file(file_root).expect("remove file root fixture");
     }
 }

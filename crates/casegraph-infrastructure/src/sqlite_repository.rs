@@ -2240,3 +2240,258 @@ fn storage_enum(name: &'static str) -> AppError {
         format!("database contains an invalid {name}"),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct RefusesSerialization;
+
+    impl Serialize for RefusesSerialization {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            Err(<S::Error as serde::ser::Error>::custom(
+                "deliberate test failure",
+            ))
+        }
+    }
+
+    #[test]
+    fn canonical_enum_encodings_round_trip() {
+        for (value, encoded) in [
+            (CaseStatus::Open, "open"),
+            (CaseStatus::Suspended, "suspended"),
+            (CaseStatus::Closed, "closed"),
+        ] {
+            assert_eq!(case_status(value), encoded);
+            assert_eq!(parse_case_status(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (AssertionOrigin::External, "external"),
+            (AssertionOrigin::Human, "human"),
+            (AssertionOrigin::Rule, "rule"),
+            (AssertionOrigin::System, "system"),
+        ] {
+            assert_eq!(assertion_origin(value), encoded);
+            assert_eq!(parse_assertion_origin(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (ClaimState::Observed, "observed"),
+            (ClaimState::Extracted, "extracted"),
+            (ClaimState::Inferred, "inferred"),
+            (ClaimState::Corroborated, "corroborated"),
+            (ClaimState::Disputed, "disputed"),
+            (ClaimState::Contradicted, "contradicted"),
+            (ClaimState::Superseded, "superseded"),
+            (ClaimState::Verified, "verified"),
+            (ClaimState::Rejected, "rejected"),
+            (ClaimState::Unresolved, "unresolved"),
+        ] {
+            assert_eq!(claim_state(value), encoded);
+            assert_eq!(parse_claim_state(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (VerificationState::NotReviewed, "not_reviewed"),
+            (VerificationState::Verified, "verified"),
+            (VerificationState::Rejected, "rejected"),
+            (VerificationState::Corrected, "corrected"),
+        ] {
+            assert_eq!(verification_state(value), encoded);
+            assert_eq!(parse_verification_state(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (RuleResult::Satisfied, "satisfied"),
+            (RuleResult::NotSatisfied, "not_satisfied"),
+            (RuleResult::Indeterminate, "indeterminate"),
+        ] {
+            assert_eq!(rule_result(value), encoded);
+            assert_eq!(parse_rule_result(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (ObligationStatus::Open, "open"),
+            (ObligationStatus::Satisfied, "satisfied"),
+            (ObligationStatus::Waived, "waived"),
+            (ObligationStatus::Expired, "expired"),
+            (ObligationStatus::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(obligation_status(value), encoded);
+            assert_eq!(parse_obligation_status(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (TemporalPrecision::Instant, "instant"),
+            (TemporalPrecision::Day, "day"),
+            (TemporalPrecision::Month, "month"),
+            (TemporalPrecision::Year, "year"),
+            (TemporalPrecision::Before, "before"),
+            (TemporalPrecision::After, "after"),
+            (TemporalPrecision::Range, "range"),
+            (TemporalPrecision::Unknown, "unknown"),
+        ] {
+            assert_eq!(temporal_precision(value), encoded);
+            assert_eq!(parse_temporal_precision(encoded), Ok(value));
+        }
+
+        for (value, encoded) in [
+            (TaskStatus::Pending, "pending"),
+            (TaskStatus::Ready, "ready"),
+            (TaskStatus::InProgress, "in_progress"),
+            (TaskStatus::Blocked, "blocked"),
+            (TaskStatus::Done, "done"),
+            (TaskStatus::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(task_status(value), encoded);
+            assert_eq!(parse_task_status(encoded), Ok(value));
+        }
+    }
+
+    #[test]
+    fn remaining_enum_encodings_and_parsers_cover_every_value() {
+        assert_eq!(
+            evidence_type(EvidenceType::ArtifactExcerpt),
+            "artifact_excerpt"
+        );
+        assert_eq!(
+            evidence_type(EvidenceType::StructuredField),
+            "structured_field"
+        );
+        assert_eq!(
+            evidence_type(EvidenceType::HumanAttestation),
+            "human_attestation"
+        );
+        assert_eq!(evidence_type(EvidenceType::RuleResult), "rule_result");
+
+        assert_eq!(review_decision(ReviewDecision::Verified), "verified");
+        assert_eq!(review_decision(ReviewDecision::Rejected), "rejected");
+        assert_eq!(review_decision(ReviewDecision::Corrected), "corrected");
+        assert_eq!(
+            review_decision(ReviewDecision::NeedsMoreEvidence),
+            "needs_more_evidence"
+        );
+
+        assert_eq!(
+            parse_contradiction_status("unresolved"),
+            Ok(ContradictionStatus::Unresolved)
+        );
+        assert_eq!(
+            parse_contradiction_status("resolved"),
+            Ok(ContradictionStatus::Resolved)
+        );
+        assert_eq!(
+            parse_contradiction_status("superseded"),
+            Ok(ContradictionStatus::Superseded)
+        );
+        assert_eq!(
+            parse_detection_method("automatic"),
+            Ok(DetectionMethod::Automatic)
+        );
+        assert_eq!(parse_detection_method("human"), Ok(DetectionMethod::Human));
+    }
+
+    #[test]
+    fn invalid_persisted_enums_fail_closed_as_storage_errors() {
+        let errors = [
+            parse_case_status("invalid").unwrap_err(),
+            parse_assertion_origin("invalid").unwrap_err(),
+            parse_claim_state("invalid").unwrap_err(),
+            parse_verification_state("invalid").unwrap_err(),
+            parse_contradiction_status("invalid").unwrap_err(),
+            parse_detection_method("invalid").unwrap_err(),
+            parse_rule_result("invalid").unwrap_err(),
+            parse_obligation_status("invalid").unwrap_err(),
+            parse_temporal_precision("invalid").unwrap_err(),
+            parse_task_status("invalid").unwrap_err(),
+        ];
+
+        assert!(
+            errors
+                .iter()
+                .all(|error| error.kind() == ErrorKind::Storage)
+        );
+        assert!(errors.iter().all(|error| {
+            error
+                .safe_message()
+                .starts_with("database contains an invalid")
+        }));
+    }
+
+    #[test]
+    fn persistence_utilities_are_deterministic_and_fail_closed() {
+        let first = deterministic_id("evt", &["case_1", "claim_1"]).unwrap();
+        let same = deterministic_id("evt", &["case_1", "claim_1"]).unwrap();
+        let different = deterministic_id("evt", &["case_1", "claim_2"]).unwrap();
+        assert_eq!(first, same);
+        assert_ne!(first, different);
+        assert_eq!(
+            deterministic_id("invalid kind", &["value"])
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidInput
+        );
+
+        let low = RecordId::parse("case_1").unwrap();
+        let high = RecordId::parse("case_2").unwrap();
+        assert_eq!(ordered_ids(&low, &high), (&low, &high));
+        assert_eq!(ordered_ids(&high, &low), (&low, &high));
+
+        let encoded = to_json(&vec!["alpha", "beta"]).unwrap();
+        assert_eq!(
+            from_json::<Vec<String>>(&encoded).unwrap(),
+            ["alpha", "beta"]
+        );
+        assert_eq!(
+            to_json(&RefusesSerialization).unwrap_err().kind(),
+            ErrorKind::Internal
+        );
+        assert_eq!(
+            from_json::<Vec<String>>("{").unwrap_err().kind(),
+            ErrorKind::Storage
+        );
+
+        assert_eq!(
+            parse_id("case_valid".to_owned()).unwrap().as_str(),
+            "case_valid"
+        );
+        assert_eq!(
+            parse_id("not valid".to_owned()).unwrap_err().kind(),
+            ErrorKind::Storage
+        );
+        assert_eq!(timestamp(0), Ok(TimestampMs::new(0).unwrap()));
+        assert_eq!(timestamp(-1).unwrap_err().kind(), ErrorKind::Storage);
+    }
+
+    #[test]
+    fn database_and_migration_failures_have_stable_categories() {
+        let ordinary = database_error(rusqlite::Error::InvalidQuery);
+        assert_eq!(ordinary.kind(), ErrorKind::Storage);
+        assert!(ordinary.safe_message().contains("SQLite unknown"));
+
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute("CREATE TABLE unique_values(value TEXT UNIQUE)", [])
+            .unwrap();
+        connection
+            .execute("INSERT INTO unique_values(value) VALUES ('one')", [])
+            .unwrap();
+        let constraint = connection
+            .execute("INSERT INTO unique_values(value) VALUES ('one')", [])
+            .unwrap_err();
+        let mapped = database_error(constraint);
+        assert_eq!(mapped.kind(), ErrorKind::Conflict);
+        assert!(mapped.safe_message().contains("SQLite 2067"));
+
+        let mapped = migration_error(migrations::MigrationError::UnsupportedVersion {
+            found: 2,
+            supported: 1,
+        });
+        assert_eq!(mapped.kind(), ErrorKind::Storage);
+        assert_eq!(mapped.safe_message(), "database migration failed");
+    }
+}

@@ -17,6 +17,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo test -p casegraph-infrastructure migrations --locked
 cargo test -p casegraph-infrastructure --test evaluation --locked
+cargo llvm-cov --workspace --locked --summary-only --fail-under-lines 90 --fail-under-regions 85 --fail-under-functions 75
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
@@ -52,16 +53,21 @@ project-specific certification plan; ordinary repository approval does not subst
 ## Coverage and object code
 
 Requirement coverage is enforced structurally by `casegraph-assurance` and semantically by review.
-Source structural coverage is useful diagnostic evidence but no coverage level is currently claimed.
-Statement/decision/MC/DC objectives, data/control coupling, compiler-generated code, executable
-object-code-to-source trace, target-hardware tests, and robustness sufficiency require an assigned
-DAL and approved environment. Until then, missing structural-coverage evidence is an explicit
-certification gap, not evidence of unreachable or deactivated code.
+Source structural coverage is collected with pinned `cargo-llvm-cov` 0.8.7 and the Rust 1.95 LLVM
+tools. CI requires workspace totals of at least 90% lines, 85% regions, and 75% functions. The
+controlled result, baseline comparison, and residual analysis are in `COVERAGE_ANALYSIS.md`.
+These floors are regression controls, not a claim that a DO-178C structural-coverage objective has
+been met. Stable source-based coverage does not report branch coverage here, and the current run
+does not establish decision or MC/DC coverage, data/control coupling, compiler-generated-code
+disposition, executable object-code-to-source trace, target-hardware execution, or robustness
+sufficiency. Those objectives require an assigned DAL and approved environment. Uncovered code is
+reviewed as a gap; it is not silently classified as unreachable or deactivated.
 
 ## Tool assessment
 
-Rust 1.95, Cargo, rustc, Clippy, rustfmt, the Rust test harness, SQLite, GitHub Actions, and
-`casegraph-assurance` are controlled by exact version or immutable configuration where practical.
-None is qualified under DO-330. Automated outputs receive no certification credit that would remove
-or reduce a required verification activity. Tool anomalies are problem reports; review or an
-independently implemented check must detect errors where qualification would otherwise be needed.
+Rust 1.95, Cargo, rustc, Clippy, rustfmt, the Rust test harness, SQLite, `cargo-llvm-cov` 0.8.7,
+GitHub Actions, and `casegraph-assurance` are controlled by exact version or immutable
+configuration where practical. None is qualified under DO-330. Automated outputs receive no
+certification credit that would remove or reduce a required verification activity. Tool anomalies
+are problem reports; review or an independently implemented check must detect errors where
+qualification would otherwise be needed.

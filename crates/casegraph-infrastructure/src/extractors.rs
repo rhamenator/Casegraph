@@ -320,13 +320,13 @@ fn parse_decimal(value: &str) -> Result<Option<Decimal>, PipelineError> {
     let Some((whole, fraction)) = value.split_once('.') else {
         return Ok(None);
     };
+    let (negative, unsigned_whole) = whole
+        .strip_prefix('-')
+        .map_or((false, whole), |digits| (true, digits));
     if fraction.is_empty()
         || !fraction.bytes().all(|byte| byte.is_ascii_digit())
-        || whole.is_empty()
-        || !whole
-            .trim_start_matches('-')
-            .bytes()
-            .all(|byte| byte.is_ascii_digit())
+        || unsigned_whole.is_empty()
+        || !unsigned_whole.bytes().all(|byte| byte.is_ascii_digit())
     {
         return Ok(None);
     }
@@ -342,8 +342,7 @@ fn parse_decimal(value: &str) -> Result<Option<Decimal>, PipelineError> {
             "decimal scale exceeds supported range",
         ));
     }
-    let negative = whole.starts_with('-');
-    let digits = format!("{}{}", whole.trim_start_matches('-'), fraction);
+    let digits = format!("{unsigned_whole}{fraction}");
     let mut coefficient = digits.parse::<i64>().map_err(|_| {
         PipelineError::new(
             PipelineFailureKind::ValidationRejected,
@@ -368,7 +367,7 @@ fn parse_decimal(value: &str) -> Result<Option<Decimal>, PipelineError> {
 
 #[cfg(test)]
 mod tests {
-    use super::CoreDeterministicExtractor;
+    use super::{CoreDeterministicExtractor, normalize, parse_csv, parse_decimal, parse_usd};
     use casegraph_application::{ArtifactFormat, DeterministicExtractor, PipelineFailureKind};
     use casegraph_domain::{KnowledgeValue, MaterialValue};
 
@@ -414,5 +413,115 @@ mod tests {
             .extract(ArtifactFormat::Csv, b"a,b\n1\n")
             .expect_err("width mismatch must fail");
         assert_eq!(error.kind, PipelineFailureKind::MalformedInput);
+    }
+
+    #[test]
+    fn extractor_metadata_formats_and_malformed_inputs_are_explicit() {
+        let extractor = CoreDeterministicExtractor;
+        assert_eq!(extractor.name(), "casegraph.core-deterministic");
+        assert_eq!(extractor.version(), "1");
+        assert!(extractor.supports(ArtifactFormat::PlainText));
+        assert!(extractor.supports(ArtifactFormat::Json));
+        assert!(extractor.supports(ArtifactFormat::Csv));
+        assert_eq!(
+            extractor
+                .extract(ArtifactFormat::PlainText, &[0xff])
+                .expect_err("non UTF-8 input")
+                .kind,
+            PipelineFailureKind::MalformedInput
+        );
+        assert!(
+            extractor
+                .extract(ArtifactFormat::Json, b"{")
+                .expect_err("malformed JSON")
+                .safe_message
+                .contains("malformed")
+        );
+        assert!(
+            extractor
+                .extract(ArtifactFormat::Json, b"[]")
+                .expect_err("top-level array")
+                .safe_message
+                .contains("top-level object")
+        );
+    }
+
+    #[test]
+    fn normalization_covers_epistemic_boolean_temporal_numeric_and_text_values() {
+        for input in ["null", "UNKNOWN"] {
+            assert_eq!(
+                normalize(input).expect("unknown").0,
+                KnowledgeValue::Unknown
+            );
+        }
+        for (input, expected) in [("true", true), ("FALSE", false)] {
+            assert_eq!(
+                normalize(input).expect("boolean").0,
+                KnowledgeValue::Known(MaterialValue::Boolean(expected))
+            );
+        }
+        let (date, temporal) = normalize("2026-08-13").expect("date");
+        assert!(matches!(
+            date,
+            KnowledgeValue::Known(MaterialValue::Date(_))
+        ));
+        assert!(temporal.is_some());
+        assert!(matches!(
+            normalize("$1,427.50").expect("money").0,
+            KnowledgeValue::Known(MaterialValue::Money(_))
+        ));
+        assert_eq!(
+            normalize("-42").expect("integer").0,
+            KnowledgeValue::Known(MaterialValue::Integer(-42))
+        );
+        assert!(matches!(
+            normalize("-1.25").expect("decimal").0,
+            KnowledgeValue::Known(MaterialValue::Decimal(_))
+        ));
+        assert_eq!(
+            normalize("invented text").expect("text").0,
+            KnowledgeValue::Known(MaterialValue::Text("invented text".to_owned()))
+        );
+
+        assert!(parse_usd("plain").expect("not money").is_none());
+        assert!(parse_usd("$bad").is_err());
+        assert!(parse_decimal("1").expect("not decimal").is_none());
+        for malformed in [".1", "1.", "x.1", "1.x", "-.1", "--1.0"] {
+            assert!(
+                parse_decimal(malformed)
+                    .expect("malformed scalar is not a decimal")
+                    .is_none()
+            );
+        }
+        assert!(parse_decimal("1.1234567890123456789").is_err());
+        assert!(parse_decimal("9223372036854775808.0").is_err());
+    }
+
+    #[test]
+    fn text_and_csv_parsers_handle_blank_crlf_quotes_and_header_failures() {
+        let text = CoreDeterministicExtractor
+            .extract(
+                ArtifactFormat::PlainText,
+                b"ignored\r\n: no-key\r\nempty:   \r\nvalid: value\r\n",
+            )
+            .expect("text");
+        assert_eq!(text.len(), 1);
+        assert_eq!(text[0].predicate, "valid");
+
+        assert!(parse_csv("").expect("empty CSV").is_empty());
+        assert_eq!(
+            parse_csv("name,note\r\nAlex,\"said \"\"hello\"\"\"\r\n\r\n").expect("quoted CSV")[1]
+                [1],
+            "said \"hello\""
+        );
+        assert!(parse_csv("name,\"unterminated").is_err());
+        let empty_header = CoreDeterministicExtractor
+            .extract(ArtifactFormat::Csv, b"name,\nAlex,value\n")
+            .expect_err("empty header");
+        assert_eq!(empty_header.kind, PipelineFailureKind::MalformedInput);
+        let fields = CoreDeterministicExtractor
+            .extract(ArtifactFormat::Csv, b"name,note\nAlex,\n")
+            .expect("empty values are omitted");
+        assert_eq!(fields.len(), 1);
     }
 }

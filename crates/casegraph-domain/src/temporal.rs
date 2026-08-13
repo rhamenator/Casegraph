@@ -206,7 +206,7 @@ fn civil_from_days(days: i64) -> (i32, u8, u8) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Date, TemporalValue};
+    use super::{Date, TemporalValue, TimestampMs};
 
     #[test]
     fn leap_year_and_month_boundary_arithmetic_is_deterministic() {
@@ -235,5 +235,63 @@ mod tests {
             original: "June or July".to_owned(),
         };
         assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn timestamps_and_dates_reject_every_invalid_component() {
+        assert!(TimestampMs::new(-1).is_err());
+        assert_eq!(TimestampMs::new(42).expect("timestamp").get(), 42);
+        assert!(serde_json::from_str::<TimestampMs>("-1").is_err());
+        assert!(Date::new(0, 1, 1).is_err());
+        assert!(Date::new(2026, 0, 1).is_err());
+        assert!(Date::new(2026, 13, 1).is_err());
+        assert!(Date::new(2026, 1, 0).is_err());
+        assert!(Date::new(2026, 4, 31).is_err());
+        assert!(Date::parse_iso("abcd-01-01").is_err());
+        assert!(Date::parse_iso("2026-xx-01").is_err());
+        assert!(Date::parse_iso("2026-01-xx").is_err());
+        assert!(
+            Date::new(9999, 12, 31)
+                .expect("max date")
+                .checked_add_days(1)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn partial_temporal_values_validate_without_inventing_precision() {
+        for valid in [
+            TemporalValue::Month {
+                year: 2026,
+                month: 8,
+                original: "August 2026".to_owned(),
+            },
+            TemporalValue::Year {
+                year: 2026,
+                original: "2026".to_owned(),
+            },
+            TemporalValue::Unknown {
+                original: "sometime".to_owned(),
+            },
+        ] {
+            valid.validate().expect("valid partial temporal value");
+        }
+        assert!(
+            TemporalValue::Month {
+                year: 2026,
+                month: 13,
+                original: "invalid".to_owned(),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            TemporalValue::Year {
+                year: 10_000,
+                original: "invalid".to_owned(),
+            }
+            .validate()
+            .is_err()
+        );
     }
 }

@@ -432,6 +432,21 @@ mod tests {
     }
 
     #[test]
+    fn controlled_coverage_configuration_has_exact_tool_and_floors() {
+        let workflow = fs::read_to_string(repository_root().join(".github/workflows/ci.yml"))
+            .expect("controlled CI workflow");
+        for expected in [
+            "cargo install cargo-llvm-cov --version 0.8.7 --locked",
+            "components: clippy,rustfmt,llvm-tools-preview",
+            "--fail-under-lines 90",
+            "--fail-under-regions 85",
+            "--fail-under-functions 75",
+        ] {
+            assert!(workflow.contains(expected), "CI is missing {expected}");
+        }
+    }
+
+    #[test]
     fn malformed_and_escaping_assurance_references_are_rejected() {
         let root = temporary_repository();
         write(
@@ -459,6 +474,225 @@ mod tests {
         let errors = check(&root).expect_err("invalid data must fail closed");
         assert!(errors.iter().any(|error| error.contains("escapes")));
         assert!(errors.iter().any(|error| error.contains("missing_test")));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn assurance_record_validators_reject_every_invalid_classification() {
+        let root = repository_root();
+        let requirement_rows = vec![
+            vec![
+                "BAD-ID",
+                "OTHER",
+                "not-a-parent",
+                "implemented",
+                "maybe",
+                "missing.md",
+                "short",
+            ],
+            vec![
+                "CG-HLR-001",
+                "HLR",
+                "CG-HLR-999",
+                "verified",
+                "no",
+                "Cargo.toml",
+                "The platform shall retain this valid fixture requirement.",
+            ],
+            vec![
+                "CG-HLR-001",
+                "HLR",
+                "-",
+                "verified",
+                "no",
+                "Cargo.toml",
+                "The platform shall expose duplicate requirement detection.",
+            ],
+            vec![
+                "CG-HLR-002",
+                "HLR",
+                "CG-HLR-999",
+                "verified",
+                "no",
+                "missing.md",
+                "The platform shall reject a missing allocation reference.",
+            ],
+            vec![
+                "CG-LLR-001",
+                "LLR",
+                "CG-HLR-404",
+                "deferred",
+                "yes",
+                "CG-HLR-999",
+                "The component shall reject an absent high-level parent.",
+            ],
+            vec![
+                "CG-LLR-002",
+                "LLR",
+                "-",
+                "verified",
+                "yes",
+                "-",
+                "The derived component requirement shall identify a parent.",
+            ],
+        ]
+        .into_iter()
+        .map(|row| row.into_iter().map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+        let mut errors = Vec::new();
+        let requirements = validate_requirements(&root, &requirement_rows, &mut errors);
+        for expected in [
+            "invalid level",
+            "canonical requirement",
+            "invalid status",
+            "classify derived",
+            "complete, testable sentence",
+            "path does not exist",
+            "duplicate requirement",
+            "HLR must use '-'",
+            "LLR allocation source",
+            "not an existing HLR",
+            "must identify a parent",
+        ] {
+            assert!(
+                errors.iter().any(|error| error.contains(expected)),
+                "missing diagnostic {expected}: {errors:?}"
+            );
+        }
+
+        let trace_rows = vec![
+            vec![
+                "CG-HLR-404",
+                "Cargo.toml",
+                "Cargo.toml",
+                "crates/casegraph-assurance/src/main.rs#repository_assurance_data_is_internally_consistent",
+                "inspection",
+            ],
+            vec![
+                "CG-HLR-404",
+                "Cargo.toml",
+                "Cargo.toml",
+                "Cargo.toml",
+                "test",
+            ],
+            vec![
+                "CG-LLR-001",
+                "Cargo.toml",
+                "Cargo.toml",
+                "crates/casegraph-assurance/src/main.rs#repository_assurance_data_is_internally_consistent",
+                "test",
+            ],
+        ]
+        .into_iter()
+        .map(|row| row.into_iter().map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+        let mut trace_errors = Vec::new();
+        validate_traceability(&root, &requirements, &trace_rows, &mut trace_errors);
+        for expected in [
+            "unknown requirement",
+            "duplicate trace",
+            "lacks a function name",
+            "unsupported verification method",
+            "has no trace record",
+            "must not claim verification trace",
+        ] {
+            assert!(
+                trace_errors.iter().any(|error| error.contains(expected)),
+                "missing diagnostic {expected}: {trace_errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tsv_configuration_problem_and_symbol_validation_fail_closed() {
+        let root = temporary_repository();
+        let mut errors = Vec::new();
+        assert!(read_tsv(&root, "missing.tsv", "header", 2, &mut errors).is_empty());
+        assert!(errors.iter().any(|error| error.contains("cannot read")));
+
+        write(
+            &root,
+            "malformed.tsv",
+            "wrong\n# comment\n\nleft\tonly\textra\n padded\tvalue\n",
+        );
+        errors.clear();
+        assert!(read_tsv(&root, "malformed.tsv", "header", 2, &mut errors).is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("unexpected header"))
+        );
+        assert!(errors.iter().any(|error| error.contains("3 columns")));
+        assert!(errors.iter().any(|error| error.contains("space-padded")));
+
+        write(&root, "fixture.rs", "fn present_symbol() {}\n");
+        errors.clear();
+        validate_reference(
+            &root,
+            "CG-HLR-001",
+            "test",
+            "fixture.rs#",
+            true,
+            &mut errors,
+        );
+        validate_reference(
+            &root,
+            "CG-HLR-001",
+            "test",
+            "fixture.rs#not-present",
+            true,
+            &mut errors,
+        );
+        validate_reference(
+            &root,
+            "CG-HLR-001",
+            "test",
+            "fixture.rs#missing_symbol",
+            true,
+            &mut errors,
+        );
+        assert!(errors.iter().any(|error| error.contains("invalid symbol")));
+        assert!(errors.iter().any(|error| error.contains("was not found")));
+
+        let configuration_rows = vec![
+            vec!["BAD", "other", "../escape", "manual"],
+            vec!["CG-CI-001", "source", "missing", "git"],
+            vec!["CG-CI-001", "source", "fixture.rs", "git"],
+        ]
+        .into_iter()
+        .map(|row| row.into_iter().map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+        errors.clear();
+        validate_configuration(&root, &configuration_rows, &mut errors);
+        for expected in [
+            "canonical configuration",
+            "duplicate configuration",
+            "invalid configuration class",
+            "unsafe configuration path",
+            "configuration path does not exist",
+            "unsupported control mechanism",
+        ] {
+            assert!(errors.iter().any(|error| error.contains(expected)));
+        }
+
+        let problem_rows = vec![
+            vec!["BAD", "invalid", "trivial", "fixture", "-"],
+            vec!["CG-PR-001", "closed", "major", "fixture", "-"],
+            vec!["CG-PR-001", "open", "minor", "fixture", "-"],
+        ]
+        .into_iter()
+        .map(|row| row.into_iter().map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+        errors.clear();
+        validate_problems(&problem_rows, &mut errors);
+        for expected in [
+            "invalid or duplicate",
+            "invalid status",
+            "invalid severity",
+            "lacks verification evidence",
+        ] {
+            assert!(errors.iter().any(|error| error.contains(expected)));
+        }
         fs::remove_dir_all(root).ok();
     }
 

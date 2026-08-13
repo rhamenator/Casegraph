@@ -28,3 +28,4 @@ CG-CI-026	design	docs	git
 CG-CI-027	planning	IMPLEMENTATION_PLAN.md	git
 CG-CI-028	release	README.md	git
 CG-CI-029	release	LICENSE	git
+CG-CI-030	verification	assurance/COVERAGE_ANALYSIS.md	git

@@ -187,4 +187,39 @@ mod tests {
         let values = HashMap::from([("CASEGRAPH_DATA_DIR".to_owned(), root.to_owned())]);
         assert!(Config::from_map(&values).is_err());
     }
+
+    #[test]
+    fn every_configuration_choice_and_boundary_is_validated() {
+        let values = HashMap::from([
+            ("CASEGRAPH_DATA_DIR".to_owned(), "fixture-data".to_owned()),
+            (
+                "CASEGRAPH_BIND_ADDR".to_owned(),
+                "127.0.0.1:9191".to_owned(),
+            ),
+            (
+                "CASEGRAPH_MAX_ARTIFACT_BYTES".to_owned(),
+                "1073741824".to_owned(),
+            ),
+            ("CASEGRAPH_MODEL_POLICY".to_owned(), "local-only".to_owned()),
+            ("CASEGRAPH_LOG_FORMAT".to_owned(), "pretty".to_owned()),
+        ]);
+        let config = Config::from_map(&values).expect("valid explicit configuration");
+        assert_eq!(config.data_dir, PathBuf::from("fixture-data"));
+        assert_eq!(config.bind_addr.port(), 9191);
+        assert_eq!(config.max_artifact_bytes, 1_073_741_824);
+        assert_eq!(config.model_policy, ModelPolicy::LocalOnly);
+        assert_eq!(config.log_format, LogFormat::Pretty);
+
+        for (field, invalid) in [
+            ("CASEGRAPH_BIND_ADDR", "not-an-address"),
+            ("CASEGRAPH_MAX_ARTIFACT_BYTES", "0"),
+            ("CASEGRAPH_MAX_ARTIFACT_BYTES", "1073741825"),
+            ("CASEGRAPH_MODEL_POLICY", "remote"),
+            ("CASEGRAPH_LOG_FORMAT", "verbose"),
+        ] {
+            let values = HashMap::from([(field.to_owned(), invalid.to_owned())]);
+            let error = Config::from_map(&values).expect_err("invalid configuration must fail");
+            assert!(error.to_string().contains(field));
+        }
+    }
 }
