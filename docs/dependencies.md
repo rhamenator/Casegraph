@@ -31,3 +31,8 @@ increase must be justified.
 GitHub Actions are pinned to immutable commit SHAs in CI. Dependabot may propose updates, but an
 update requires configuration/tool impact analysis, review, and a green exact-revision run. Pinned
 versions provide configuration identity; they do not constitute DO-330 qualification.
+
+`cargo-llvm-cov` 0.8.7 is an exact-version verification-only tool installed by CI with Cargo and is
+not linked into Casegraph or added to its runtime dependency graph. It drives the LLVM coverage
+tools shipped with the pinned Rust toolchain. Its reports are reviewed diagnostic evidence; the tool
+is not DO-330 qualified and cannot replace required verification or coverage analysis.

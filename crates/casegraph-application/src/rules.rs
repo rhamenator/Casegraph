@@ -422,3 +422,448 @@ fn sha256(bytes: &[u8]) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ClaimBundle, ClaimResult, CorrectionBundle, CreateCaseBundle, IngestionBundle,
+        IngestionResult, ReviewBundle,
+    };
+    use casegraph_domain::{
+        ArtifactVersion, AssertionOrigin, AuditEvent, Case, Claim, ClaimState, Contradiction,
+        Correction, HumanReview, RuleCondition, TimestampMs, WorkflowEffect,
+    };
+    use std::sync::Mutex;
+
+    struct FixedClock;
+
+    impl Clock for FixedClock {
+        fn now(&self) -> Result<TimestampMs, AppError> {
+            Ok(TimestampMs::new(1_000).expect("fixture timestamp"))
+        }
+    }
+
+    struct SequenceIds(Mutex<u64>);
+
+    impl IdGenerator for SequenceIds {
+        fn next(&self, kind: &'static str) -> Result<RecordId, AppError> {
+            let mut value = self.0.lock().expect("id lock");
+            *value += 1;
+            RecordId::parse(format!("{kind}_{value}")).map_err(Into::into)
+        }
+    }
+
+    #[derive(Default)]
+    struct RuleRepository {
+        version: Mutex<Option<RuleVersion>>,
+        claims: Mutex<Vec<GroundedClaim>>,
+        workflows: Mutex<Vec<WorkflowMaterialization>>,
+    }
+
+    impl EvidenceRepository for RuleRepository {
+        fn create_case(&self, _bundle: &CreateCaseBundle) -> Result<Case, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn get_case(&self, _case_id: &RecordId) -> Result<Option<Case>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn ingest(&self, _bundle: &IngestionBundle) -> Result<IngestionResult, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn get_artifact_version(
+            &self,
+            _version_id: &RecordId,
+        ) -> Result<Option<ArtifactVersion>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn list_artifact_versions(
+            &self,
+            _case_id: &RecordId,
+        ) -> Result<Vec<ArtifactVersion>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn get_provenance(
+            &self,
+            _provenance_id: &RecordId,
+        ) -> Result<Option<casegraph_domain::ProvenanceRecord>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn record_claim(&self, _bundle: &ClaimBundle) -> Result<ClaimResult, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn get_claim(&self, _claim_id: &RecordId) -> Result<Option<Claim>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn list_claims(&self, _case_id: &RecordId) -> Result<Vec<Claim>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn list_contradictions(&self, _case_id: &RecordId) -> Result<Vec<Contradiction>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn review_claim(&self, _bundle: &ReviewBundle) -> Result<HumanReview, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn correct_claim(&self, _bundle: &CorrectionBundle) -> Result<Correction, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn list_audit_events(&self, _case_id: &RecordId) -> Result<Vec<AuditEvent>, AppError> {
+            unreachable!("unused repository operation")
+        }
+
+        fn register_rule(&self, bundle: &RegisterRuleBundle) -> Result<RuleVersion, AppError> {
+            *self.version.lock().expect("version lock") = Some(bundle.version.clone());
+            Ok(bundle.version.clone())
+        }
+
+        fn get_rule_version(
+            &self,
+            _rule_version_id: &RecordId,
+        ) -> Result<Option<RuleVersion>, AppError> {
+            Ok(self.version.lock().expect("version lock").clone())
+        }
+
+        fn list_grounded_claims(
+            &self,
+            _case_id: &RecordId,
+        ) -> Result<Vec<GroundedClaim>, AppError> {
+            Ok(self.claims.lock().expect("claims lock").clone())
+        }
+
+        fn record_evaluation(
+            &self,
+            bundle: &EvaluationBundle,
+        ) -> Result<WorkflowMaterialization, AppError> {
+            let value = bundle.materialization.clone();
+            self.workflows
+                .lock()
+                .expect("workflow lock")
+                .push(value.clone());
+            Ok(value)
+        }
+
+        fn list_workflow(
+            &self,
+            _case_id: &RecordId,
+        ) -> Result<Vec<WorkflowMaterialization>, AppError> {
+            Ok(self.workflows.lock().expect("workflow lock").clone())
+        }
+    }
+
+    fn id(value: &str) -> RecordId {
+        RecordId::parse(value).expect("fixture id")
+    }
+
+    fn definition() -> RuleDefinition {
+        RuleDefinition {
+            all: vec![RuleCondition {
+                subject_key: "subject:one".to_owned(),
+                predicate: "eligible".to_owned(),
+                expected: KnowledgeValue::Known(MaterialValue::Boolean(true)),
+            }],
+            effect: WorkflowEffect {
+                obligation_kind: "respond".to_owned(),
+                obligation_description: "Respond to the synthetic event".to_owned(),
+                deadline_anchor_predicate: "received_date".to_owned(),
+                deadline_days_after: 10,
+                task_title: "Prepare response".to_owned(),
+            },
+        }
+    }
+
+    fn version() -> RuleVersion {
+        RuleVersion {
+            id: id("rule_version_1"),
+            rule_id: id("rule_1"),
+            version: 1,
+            definition: definition(),
+            definition_sha256: "a".repeat(64),
+            effective_from: None,
+            effective_until: None,
+            created_at: TimestampMs::new(1_000).expect("fixture timestamp"),
+        }
+    }
+
+    fn grounded(
+        claim_id: &str,
+        predicate: &str,
+        value: MaterialValue,
+        state: ClaimState,
+    ) -> GroundedClaim {
+        GroundedClaim {
+            claim: Claim {
+                id: id(claim_id),
+                case_id: id("case_1"),
+                subject_id: None,
+                subject_key: "subject:one".to_owned(),
+                predicate: predicate.to_owned(),
+                original_value: "fixture".to_owned(),
+                normalized_value: KnowledgeValue::Known(value),
+                origin: AssertionOrigin::System,
+                initial_state: state,
+                primary_provenance_id: None,
+                interpretation_confidence: None,
+                temporal: None,
+                created_at: TimestampMs::new(1_000).expect("fixture timestamp"),
+            },
+            current_state: state,
+            provenance_id: Some(id("provenance_1")),
+            evidence_ids: vec![id("evidence_1")],
+        }
+    }
+
+    fn service(repository: Arc<RuleRepository>) -> RuleWorkflowService {
+        RuleWorkflowService::new(
+            repository,
+            Arc::new(FixedClock),
+            Arc::new(SequenceIds(Mutex::new(0))),
+        )
+    }
+
+    #[test]
+    fn defensive_evaluation_refuses_disagreeing_verified_facts() {
+        let repository = Arc::new(RuleRepository {
+            version: Mutex::new(Some(version())),
+            claims: Mutex::new(vec![
+                grounded(
+                    "claim_true",
+                    "eligible",
+                    MaterialValue::Boolean(true),
+                    ClaimState::Verified,
+                ),
+                grounded(
+                    "claim_false",
+                    "eligible",
+                    MaterialValue::Boolean(false),
+                    ClaimState::Verified,
+                ),
+                grounded(
+                    "claim_date",
+                    "received_date",
+                    MaterialValue::Date(Date::new(2026, 8, 12).expect("fixture date")),
+                    ClaimState::Verified,
+                ),
+            ]),
+            workflows: Mutex::new(Vec::new()),
+        });
+        let result = service(repository)
+            .evaluate(EvaluateRuleRequest {
+                case_id: id("case_1"),
+                rule_version_id: id("rule_version_1"),
+                actor: "test".to_owned(),
+                correlation_id: Some(id("correlation_1")),
+            })
+            .expect("record defensive evaluation");
+        assert_eq!(result.evaluation.result, RuleResult::Indeterminate);
+        assert!(result.evaluation.explanation.contains("disagree"));
+        assert!(result.task.is_none());
+    }
+
+    #[test]
+    fn satisfied_evaluation_materializes_work_and_grounded_deadline_answer() {
+        let repository = Arc::new(RuleRepository {
+            version: Mutex::new(Some(version())),
+            claims: Mutex::new(vec![
+                grounded(
+                    "claim_true",
+                    "eligible",
+                    MaterialValue::Boolean(true),
+                    ClaimState::Verified,
+                ),
+                grounded(
+                    "claim_date",
+                    "received_date",
+                    MaterialValue::Date(Date::new(2026, 8, 12).expect("fixture date")),
+                    ClaimState::Verified,
+                ),
+            ]),
+            workflows: Mutex::new(Vec::new()),
+        });
+        let rules = service(repository.clone());
+        let result = rules
+            .evaluate(EvaluateRuleRequest {
+                case_id: id("case_1"),
+                rule_version_id: id("rule_version_1"),
+                actor: "test".to_owned(),
+                correlation_id: None,
+            })
+            .expect("satisfied evaluation");
+        assert_eq!(result.evaluation.result, RuleResult::Satisfied);
+        assert_eq!(
+            result
+                .deadline
+                .as_ref()
+                .and_then(|deadline| deadline.due_latest)
+                .map(Date::to_iso)
+                .as_deref(),
+            Some("2026-08-22")
+        );
+        assert!(result.obligation.is_some());
+        assert!(result.task.is_some());
+
+        let answer = rules
+            .query(&id("case_1"), "What must I do by the deadline?")
+            .unwrap();
+        assert_eq!(answer.mode, AnswerMode::Established);
+        assert!(answer.statement.contains("2026-08-22"));
+        assert_eq!(
+            answer.rule_evaluation_ids,
+            vec![result.evaluation.id.clone()]
+        );
+        assert_eq!(
+            rules.list_workflow(&id("case_1")).unwrap(),
+            vec![result.clone()]
+        );
+
+        let mut unresolved = result;
+        unresolved.deadline = None;
+        *repository.workflows.lock().expect("workflow lock") = vec![unresolved];
+        assert!(
+            rules
+                .query(&id("case_1"), "What is the deadline?")
+                .unwrap()
+                .statement
+                .contains("unresolved date")
+        );
+    }
+
+    #[test]
+    fn disagreeing_deadline_anchors_and_oversized_intervals_fail_closed() {
+        let repository = Arc::new(RuleRepository {
+            version: Mutex::new(Some(version())),
+            claims: Mutex::new(vec![
+                grounded(
+                    "claim_true",
+                    "eligible",
+                    MaterialValue::Boolean(true),
+                    ClaimState::Verified,
+                ),
+                grounded(
+                    "claim_date_1",
+                    "received_date",
+                    MaterialValue::Date(Date::new(2026, 8, 12).expect("fixture date")),
+                    ClaimState::Verified,
+                ),
+                grounded(
+                    "claim_date_2",
+                    "received_date",
+                    MaterialValue::Date(Date::new(2026, 8, 13).expect("fixture date")),
+                    ClaimState::Verified,
+                ),
+            ]),
+            workflows: Mutex::new(Vec::new()),
+        });
+        let rules = service(repository.clone());
+        let request = EvaluateRuleRequest {
+            case_id: id("case_1"),
+            rule_version_id: id("rule_version_1"),
+            actor: "test".to_owned(),
+            correlation_id: None,
+        };
+        let disagreement = rules.evaluate(request.clone()).unwrap();
+        assert_eq!(disagreement.evaluation.result, RuleResult::Indeterminate);
+        assert!(disagreement.evaluation.explanation.contains("disagree"));
+
+        let mut oversized = version();
+        oversized.definition.effect.deadline_days_after = u32::MAX;
+        *repository.version.lock().expect("version lock") = Some(oversized);
+        repository
+            .claims
+            .lock()
+            .expect("claims lock")
+            .retain(|claim| claim.claim.id.as_str() != "claim_date_2");
+        assert_eq!(
+            rules.evaluate(request).unwrap_err().kind(),
+            ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn grounded_query_modes_are_derived_only_from_stored_claims() {
+        let repository = Arc::new(RuleRepository::default());
+        let rules = service(repository.clone());
+        let case_id = id("case_1");
+
+        let cases = [
+            (ClaimState::Extracted, AnswerMode::Claimed),
+            (ClaimState::Inferred, AnswerMode::Suggested),
+            (ClaimState::Corroborated, AnswerMode::Suggested),
+            (ClaimState::Verified, AnswerMode::Established),
+        ];
+        for (state, expected) in cases {
+            *repository.claims.lock().expect("claims lock") = vec![grounded(
+                "claim_1",
+                "status",
+                MaterialValue::Text("ready".to_owned()),
+                state,
+            )];
+            assert_eq!(
+                rules.query(&case_id, "What is the status?").unwrap().mode,
+                expected
+            );
+        }
+
+        *repository.claims.lock().expect("claims lock") = vec![
+            grounded(
+                "claim_1",
+                "status",
+                MaterialValue::Text("ready".to_owned()),
+                ClaimState::Verified,
+            ),
+            grounded(
+                "claim_2",
+                "status",
+                MaterialValue::Text("blocked".to_owned()),
+                ClaimState::Verified,
+            ),
+        ];
+        let conflicting = rules.query(&case_id, "What is the status?").unwrap();
+        assert_eq!(conflicting.mode, AnswerMode::Conflicting);
+        assert_eq!(conflicting.claim_ids.len(), 2);
+
+        assert_eq!(
+            rules.query(&case_id, "What is the color?").unwrap().mode,
+            AnswerMode::Unknown
+        );
+    }
+
+    #[test]
+    fn rule_registration_validates_before_repository_mutation() {
+        let repository = Arc::new(RuleRepository::default());
+        let rules = service(repository.clone());
+        let request = RegisterRuleRequest {
+            package_id: "fixture".to_owned(),
+            stable_key: "fixture.rule".to_owned(),
+            title: "Fixture rule".to_owned(),
+            version: 1,
+            definition: definition(),
+            effective_from: None,
+            effective_until: None,
+            actor: "test".to_owned(),
+            correlation_id: Some(id("correlation_1")),
+        };
+        let registered = rules.register_rule(request.clone()).unwrap();
+        assert_eq!(registered.version, 1);
+        assert_eq!(registered.definition_sha256.len(), 64);
+
+        let mut invalid = request;
+        invalid.definition.all.clear();
+        assert_eq!(
+            rules.register_rule(invalid).unwrap_err().kind(),
+            ErrorKind::InvalidInput
+        );
+        assert!(repository.version.lock().expect("version lock").is_some());
+    }
+}

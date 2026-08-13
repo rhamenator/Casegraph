@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@a5f673d0ba8626c3977bb416a1612774bc82181b # 1.95.0
         with:
-          components: clippy,rustfmt
+          components: clippy,rustfmt,llvm-tools-preview
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Verify controlled assurance data
         run: cargo run -p casegraph-assurance --locked
@@ -25,5 +25,14 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+      - name: Install controlled coverage tool
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
+      - name: Verify structural coverage floors
+        id: verify_structural_coverage_floors
+        run: >-
+          cargo llvm-cov --workspace --locked --summary-only
+          --fail-under-lines 90
+          --fail-under-regions 85
+          --fail-under-functions 75
       - name: Verify migrations
         run: cargo test -p casegraph-infrastructure migrations --locked

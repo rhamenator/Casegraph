@@ -15,6 +15,7 @@ CG-HLR-013	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	The core shall operate
 CG-HLR-014	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Material numeric monetary temporal and epistemic values shall retain exactness and represent uncertainty explicitly.
 CG-HLR-015	HLR	-	verified	no	CASEGRAPH_FOUNDATION_SPEC.md	Untrusted identifiers filenames and artifact sizes shall be validated before they reach storage boundaries.
 CG-HLR-016	HLR	-	verified	no	assurance/PLAN.md	The project shall maintain controlled requirements bidirectional implementation traces verification references configuration items and problem reports.
+CG-HLR-017	HLR	-	verified	no	assurance/VERIFICATION_PLAN.md	The project shall measure source structural coverage reproducibly document its limitations and prevent unreviewed regression below controlled minimums.
 CG-LLR-001	LLR	CG-HLR-001	verified	yes	CG-HLR-001	The artifact store shall address bytes by SHA-256 write atomically and reverify existing or retrieved bytes against their digest.
 CG-LLR-002	LLR	CG-HLR-001	verified	yes	CG-HLR-001	The database shall prevent update or deletion of artifact versions claims evidence reviews rule versions and evaluations.
 CG-LLR-003	LLR	CG-HLR-002	verified	yes	CG-HLR-002	Extracted fields shall retain their original representation and a field span or row and column source location.
@@ -25,3 +26,4 @@ CG-LLR-007	LLR	CG-HLR-007	verified	yes	CG-HLR-007	A rule evaluation shall persis
 CG-LLR-008	LLR	CG-HLR-010	verified	yes	CG-HLR-010	The API shall serve a checked-in valid OpenAPI document describing the implemented versioned core routes.
 CG-LLR-009	LLR	CG-HLR-016	verified	yes	CG-HLR-016	Continuous integration shall validate assurance data formatting static analysis tests and migrations using controlled tool versions.
 CG-LLR-010	LLR	CG-HLR-016	verified	yes	CG-HLR-016	All Rust workspace crates shall forbid unsafe code and compile with warnings denied during static analysis.
+CG-LLR-011	LLR	CG-HLR-017	verified	yes	CG-HLR-017	Continuous integration shall use cargo-llvm-cov version 0.8.7 with Rust LLVM tools and require at least 90 percent line 85 percent region and 75 percent function coverage across the workspace.

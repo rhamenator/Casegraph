@@ -29,3 +29,18 @@ impl Display for DomainError {
 }
 
 impl std::error::Error for DomainError {}
+
+#[cfg(test)]
+mod tests {
+    use super::DomainError;
+
+    #[test]
+    fn error_exposes_stable_field_and_sanitized_display() {
+        let error = DomainError::new("claim.predicate", "must not be empty");
+        assert_eq!(error.field(), "claim.predicate");
+        assert_eq!(
+            error.to_string(),
+            "invalid claim.predicate: must not be empty"
+        );
+    }
+}

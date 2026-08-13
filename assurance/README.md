@@ -36,6 +36,8 @@ Authoritative public references:
 - `STANDARDS.md`: requirements, design, Rust, SQL, test, and review standards.
 - `requirements.tsv`: uniquely identified high- and low-level requirements.
 - `traceability.tsv`: requirement-to-design/source/test mappings.
+- `COVERAGE_ANALYSIS.md`: reproducible source structural-coverage result, residual analysis, and
+  limits on assurance credit.
 - `configuration-index.tsv`: controlled configuration-item classes and paths.
 - `problem-reports.tsv`: anomalies and their disposition evidence.
 - `REVIEW_RECORD_TEMPLATE.md`: independent-review and verification record structure.

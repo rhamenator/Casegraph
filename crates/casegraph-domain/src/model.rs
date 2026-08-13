@@ -721,8 +721,11 @@ fn validate_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{AssertionOrigin, Claim, ClaimState, Confidence};
-    use crate::{KnowledgeValue, RecordId, TimestampMs};
+    use super::{
+        ArtifactVersion, AssertionOrigin, Case, CaseStatus, Claim, ClaimState, Confidence,
+        ProvenanceRecord, RuleCondition, RuleDefinition, VerificationState, WorkflowEffect,
+    };
+    use crate::{KnowledgeValue, MaterialValue, RecordId, TemporalValue, TimestampMs};
 
     fn id(value: &str) -> RecordId {
         RecordId::parse(value).expect("fixture id")
@@ -750,9 +753,159 @@ mod tests {
 
     #[test]
     fn confidence_is_optional_but_never_out_of_range_or_nan() {
+        assert_eq!(Confidence::new(0.25).expect("confidence").get(), 0.25);
         assert!(Confidence::new(0.0).is_ok());
         assert!(Confidence::new(1.0).is_ok());
         assert!(Confidence::new(f64::NAN).is_err());
         assert!(Confidence::new(1.01).is_err());
+    }
+
+    #[test]
+    fn case_and_artifact_metadata_enforce_lifecycle_and_digest_invariants() {
+        let mut case_record = Case {
+            id: id("case_1"),
+            title: "Valid case".to_owned(),
+            status: CaseStatus::Open,
+            created_at: TimestampMs::new(10).expect("timestamp"),
+            closed_at: None,
+        };
+        case_record.validate().expect("valid case");
+        case_record.closed_at = Some(TimestampMs::new(9).expect("timestamp"));
+        assert!(case_record.validate().is_err());
+        case_record.closed_at = None;
+        case_record.title = "\n".to_owned();
+        assert!(case_record.validate().is_err());
+
+        let mut version = ArtifactVersion {
+            id: id("version_1"),
+            artifact_id: id("artifact_1"),
+            version_number: 1,
+            content_sha256: "a".repeat(64),
+            content_length: 1,
+            media_type: "text/plain".to_owned(),
+            storage_key: "blobs/aa/hash".to_owned(),
+            ingested_at: TimestampMs::new(1).expect("timestamp"),
+            received_at: None,
+            original_filename: None,
+        };
+        version.validate().expect("valid artifact version");
+        version.version_number = 0;
+        assert!(version.validate().is_err());
+        version.version_number = 1;
+        version.content_sha256 = "A".repeat(64);
+        assert!(version.validate().is_err());
+        version.content_sha256 = "a".repeat(63);
+        assert!(version.validate().is_err());
+        version.content_sha256 = "a".repeat(64);
+        version.media_type.clear();
+        assert!(version.validate().is_err());
+        version.media_type = "text/plain".to_owned();
+        version.storage_key = "\u{0000}".to_owned();
+        assert!(version.validate().is_err());
+    }
+
+    #[test]
+    fn provenance_rejects_reversed_spans_and_incomplete_model_identity() {
+        let mut provenance = ProvenanceRecord {
+            id: id("provenance_1"),
+            artifact_version_id: Some(id("version_1")),
+            connector: Some("fixture".to_owned()),
+            endpoint: None,
+            external_record_id: None,
+            source_field: Some("amount".to_owned()),
+            page_number: None,
+            paragraph_number: None,
+            text_span_start: Some(1),
+            text_span_end: Some(2),
+            table_number: None,
+            row_number: None,
+            column_number: None,
+            bounding_region_json: None,
+            extraction_method: "deterministic".to_owned(),
+            extractor_name: "fixture".to_owned(),
+            extractor_version: "1".to_owned(),
+            model_provider: None,
+            model_name: None,
+            model_version: None,
+            model_configuration_json: None,
+            extracted_at: TimestampMs::new(1).expect("timestamp"),
+            confidence: None,
+            verification_state: VerificationState::NotReviewed,
+            original_representation: Some("$1.00".to_owned()),
+            correlation_id: id("correlation_1"),
+        };
+        provenance.validate().expect("valid provenance");
+        provenance.text_span_end = Some(0);
+        assert!(provenance.validate().is_err());
+        provenance.text_span_end = Some(2);
+        provenance.model_name = Some("model".to_owned());
+        assert!(provenance.validate().is_err());
+        provenance.model_provider = Some("local".to_owned());
+        provenance.validate().expect("complete model identity");
+    }
+
+    #[test]
+    fn claims_and_rules_validate_nested_vocabulary_and_temporal_values() {
+        let mut claim = Claim {
+            id: id("claim_2"),
+            case_id: id("case_1"),
+            subject_id: None,
+            subject_key: "subject".to_owned(),
+            predicate: "date".to_owned(),
+            original_value: "2026".to_owned(),
+            normalized_value: KnowledgeValue::Known(MaterialValue::Integer(2026)),
+            origin: AssertionOrigin::Human,
+            initial_state: ClaimState::Observed,
+            primary_provenance_id: None,
+            interpretation_confidence: None,
+            temporal: Some(TemporalValue::Year {
+                year: 2026,
+                original: "2026".to_owned(),
+            }),
+            created_at: TimestampMs::new(1).expect("timestamp"),
+        };
+        claim.validate().expect("human claim may omit provenance");
+        claim.subject_key.clear();
+        assert!(claim.validate().is_err());
+        claim.subject_key = "subject".to_owned();
+        claim.predicate = "bad\nvalue".to_owned();
+        assert!(claim.validate().is_err());
+        claim.predicate = "date".to_owned();
+        claim.temporal = Some(TemporalValue::Year {
+            year: 0,
+            original: "invalid".to_owned(),
+        });
+        assert!(claim.validate().is_err());
+
+        let mut rule = valid_rule();
+        rule.validate().expect("valid rule");
+        rule.all.clear();
+        assert!(rule.validate().is_err());
+        rule = valid_rule();
+        rule.all[0].predicate.clear();
+        assert!(rule.validate().is_err());
+        rule = valid_rule();
+        rule.effect.task_title = "\n".to_owned();
+        assert!(rule.validate().is_err());
+        rule = valid_rule();
+        rule.all = vec![rule.all[0].clone(); 33];
+        assert!(rule.validate().is_err());
+    }
+
+    fn valid_rule() -> RuleDefinition {
+        RuleDefinition {
+            all: vec![RuleCondition {
+                subject_key: "subject".to_owned(),
+                predicate: "predicate".to_owned(),
+                expected: KnowledgeValue::Known(MaterialValue::Boolean(true)),
+            }],
+            effect: WorkflowEffect {
+                obligation_kind: "respond".to_owned(),
+                obligation_description: "Respond to the synthetic record.".to_owned(),
+                deadline_anchor_predicate: "received_date".to_owned(),
+                deadline_days_after: 10,
+                task_title: "Prepare response".to_owned(),
+            },
+        }
     }
 }

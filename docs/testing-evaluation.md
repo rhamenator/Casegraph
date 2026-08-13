@@ -9,6 +9,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo test -p casegraph-infrastructure migrations --locked
 cargo test -p casegraph-infrastructure --test evaluation --locked
+cargo llvm-cov --workspace --locked --summary-only --fail-under-lines 90 --fail-under-regions 85 --fail-under-functions 75
 ```
 
 Tests include domain units, malformed input, application-service units, filesystem security and
@@ -17,8 +18,19 @@ loopback API, CLI full demo, package isolation, optional-model policy/schema rej
 tests. Fixtures contain invented names, records, dates, and amounts only.
 
 Named tests are mapped to controlled requirements in `assurance/traceability.tsv`. The verification
-policy, independence criteria, robustness expectations, DAL-dependent structural-coverage gap, and
-unqualified-tool boundary are controlled in `assurance/VERIFICATION_PLAN.md`.
+policy, independence criteria, robustness expectations, structural-coverage controls, and
+unqualified-tool boundary are controlled in `assurance/VERIFICATION_PLAN.md` and
+`assurance/COVERAGE_ANALYSIS.md`.
+
+## Structural coverage
+
+Install the controlled diagnostic tool with
+`cargo install cargo-llvm-cov --version 0.8.7 --locked`; the pinned Rust toolchain also needs the
+`llvm-tools-preview` component. The command above runs every workspace test under source-based
+instrumentation and enforces the same floors as CI. The current controlled run covers 93.37% of
+lines, 89.70% of regions, and 82.23% of functions, up from the initial 79.14%, 75.83%, and 66.73%
+baseline. Stable instrumentation reports no branch metric, so the result must not be described as
+decision or MC/DC coverage. Exact results and residuals are maintained with the assurance data.
 
 ## Evaluation harness
 

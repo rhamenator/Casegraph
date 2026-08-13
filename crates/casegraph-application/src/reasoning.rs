@@ -210,6 +210,7 @@ mod tests {
     struct FakeProvider {
         output: String,
         locality: ProviderLocality,
+        unavailable: bool,
     }
 
     impl RawReasoningProvider for FakeProvider {
@@ -227,7 +228,14 @@ mod tests {
         }
 
         fn invoke(&self, _redacted_context: &str) -> Result<String, ReasoningError> {
-            Ok(self.output.clone())
+            if self.unavailable {
+                Err(ReasoningError::new(
+                    ReasoningFailureKind::ProviderUnavailable,
+                    "synthetic provider detail that must not escape",
+                ))
+            } else {
+                Ok(self.output.clone())
+            }
         }
     }
 
@@ -264,6 +272,7 @@ mod tests {
             Some(Arc::new(FakeProvider {
                 output: secret_output.to_owned(),
                 locality: ProviderLocality::Local,
+                unavailable: false,
             })),
             failures.clone(),
         );
@@ -285,6 +294,7 @@ mod tests {
             Some(Arc::new(FakeProvider {
                 output: r#"{"claims":[]}"#.to_owned(),
                 locality: ProviderLocality::Remote,
+                unavailable: false,
             })),
             failures,
         );
@@ -292,5 +302,111 @@ mod tests {
             .interpret("redacted", id("failure_1"), id("correlation_1"))
             .expect_err("remote invocation must be blocked");
         assert_eq!(error.kind, ReasoningFailureKind::PolicyDenied);
+    }
+
+    fn interpreted_claim() -> InterpretedClaim {
+        InterpretedClaim {
+            subject_key: "subject:one".to_owned(),
+            predicate: "status".to_owned(),
+            original_value: "ready".to_owned(),
+            normalized_value: KnowledgeValue::Known(casegraph_domain::MaterialValue::Text(
+                "ready".to_owned(),
+            )),
+            text_span_start: Some(0),
+            text_span_end: Some(5),
+        }
+    }
+
+    fn provider_for(
+        output: ReasoningOutput,
+        locality: ProviderLocality,
+    ) -> Arc<dyn RawReasoningProvider> {
+        Arc::new(FakeProvider {
+            output: serde_json::to_string(&output).expect("serialize fixture"),
+            locality,
+            unavailable: false,
+        })
+    }
+
+    #[test]
+    fn valid_local_and_explicitly_allowlisted_remote_outputs_are_accepted() {
+        for (policy, locality) in [
+            (ProviderPolicy::LocalOnly, ProviderLocality::Local),
+            (ProviderPolicy::AllowListedRemote, ProviderLocality::Remote),
+        ] {
+            let failures = Arc::new(Failures::default());
+            let gateway = ReasoningGateway::new(
+                policy,
+                Some(provider_for(
+                    ReasoningOutput {
+                        claims: vec![interpreted_claim()],
+                    },
+                    locality,
+                )),
+                failures.clone(),
+            );
+            let claims = gateway
+                .interpret("redacted", id("failure_1"), id("correlation_1"))
+                .expect("policy permits schema-valid output");
+            assert_eq!(claims, vec![interpreted_claim()]);
+            assert!(failures.0.lock().expect("failure lock").is_empty());
+        }
+    }
+
+    #[test]
+    fn provider_failure_is_sanitized_and_recorded() {
+        let failures = Arc::new(Failures::default());
+        let gateway = ReasoningGateway::new(
+            ProviderPolicy::LocalOnly,
+            Some(Arc::new(FakeProvider {
+                output: String::new(),
+                locality: ProviderLocality::Local,
+                unavailable: true,
+            })),
+            failures.clone(),
+        );
+        let error = gateway
+            .interpret("redacted", id("failure_1"), id("correlation_1"))
+            .expect_err("provider failure must be explicit");
+        assert_eq!(error.kind, ReasoningFailureKind::ProviderUnavailable);
+        assert_eq!(error.safe_message, "reasoning provider invocation failed");
+        let recorded = failures.0.lock().expect("failure lock");
+        assert_eq!(recorded[0].provider.as_deref(), Some("synthetic"));
+        assert_eq!(recorded[0].model.as_deref(), Some("fixture"));
+        assert!(
+            !recorded[0]
+                .safe_message
+                .contains("synthetic provider detail")
+        );
+    }
+
+    #[test]
+    fn every_semantic_output_invariant_is_rejected() {
+        let mut blank_subject = interpreted_claim();
+        blank_subject.subject_key = "  ".to_owned();
+        let mut blank_predicate = interpreted_claim();
+        blank_predicate.predicate.clear();
+        let mut reversed_span = interpreted_claim();
+        reversed_span.text_span_start = Some(6);
+        reversed_span.text_span_end = Some(5);
+
+        for invalid in [blank_subject, blank_predicate, reversed_span] {
+            let failures = Arc::new(Failures::default());
+            let gateway = ReasoningGateway::new(
+                ProviderPolicy::LocalOnly,
+                Some(provider_for(
+                    ReasoningOutput {
+                        claims: vec![invalid],
+                    },
+                    ProviderLocality::Local,
+                )),
+                failures.clone(),
+            );
+            let error = gateway
+                .interpret("redacted", id("failure_1"), id("correlation_1"))
+                .expect_err("semantic invariant must fail closed");
+            assert_eq!(error.kind, ReasoningFailureKind::ValidationRejected);
+            assert_eq!(failures.0.lock().expect("failure lock").len(), 1);
+        }
     }
 }

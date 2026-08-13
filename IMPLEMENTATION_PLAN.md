@@ -103,6 +103,18 @@ the maintained product lifecycle, without an unsupported certification claim.
 - Control configuration items and problem reports, add contribution/review records, and pin CI tools.
 - Add a dependency-free assurance-data validator and enforce it in CI.
 
+### 8. Structural coverage hardening — complete
+
+Capability: reproducible source-coverage feedback that supplements requirements-based verification
+without overstating DO-178C credit.
+
+- Establish a workspace baseline with pinned `cargo-llvm-cov` 0.8.7 and Rust LLVM tools.
+- Add robustness, persistence-conversion, optional-provider, rule-decision, API, CLI, artifact-store,
+  configuration, domain-boundary, and deterministic extraction tests.
+- Record anomalies found by coverage work as problem reports and add regression tests for each fix.
+- Enforce conservative workspace floors of 90% lines, 85% regions, and 75% functions in CI; retain
+  the exact achieved result and justified residuals in `assurance/COVERAGE_ANALYSIS.md`.
+
 ## Explicitly deferred unless a foundational requirement forces them
 
 - OCR, PDF layout extraction, DOCX/XLSX, non-filesystem connectors, remote model integrations,
