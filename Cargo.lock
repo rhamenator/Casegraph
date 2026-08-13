@@ -94,6 +94,7 @@ version = "0.1.0"
 dependencies = [
  "casegraph-domain",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,16 +1,18 @@
 #![forbid(unsafe_code)]
 
-//! Canonical domain types and invariants. This crate has no adapter dependencies.
+//! Domain-neutral canonical types and invariants. This crate has no adapter dependencies.
+
+mod error;
+mod id;
+mod model;
+mod temporal;
+mod value;
+
+pub use error::DomainError;
+pub use id::RecordId;
+pub use model::*;
+pub use temporal::{Date, TemporalPrecision, TemporalValue, TimestampMs};
+pub use value::{Decimal, KnowledgeValue, MaterialValue, Money};
 
 /// Current canonical schema version understood by the domain layer.
 pub const CANONICAL_SCHEMA_VERSION: u32 = 1;
-
-#[cfg(test)]
-mod tests {
-    use super::CANONICAL_SCHEMA_VERSION;
-
-    #[test]
-    fn schema_version_is_explicit() {
-        assert_eq!(CANONICAL_SCHEMA_VERSION, 1);
-    }
-}

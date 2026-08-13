@@ -35,7 +35,7 @@ Capability: reproducible local development and schema evolution.
 - Test clean migration, checksum/immutability behavior, and supported upgrade behavior.
 - Add CI gates for formatting, Clippy, tests, and migrations.
 
-### 2. Evidence integrity core — in progress
+### 2. Evidence integrity core — complete
 
 Invariants: source bytes are immutable; every externally derived material claim has recoverable
 provenance; duplicate ingestion is idempotent; conflicting claims coexist; corrections preserve
@@ -47,7 +47,7 @@ history.
   human reviews, corrections, and audit events.
 - Add unit, persistence, property/invariant, malformed-input, and path-traversal tests.
 
-### 3. Deterministic pipeline and reasoning boundary — pending
+### 3. Deterministic pipeline and reasoning boundary — in progress
 
 Capability: deterministic text/JSON/CSV extraction, normalization, validation, and evidence
 creation without an AI provider.

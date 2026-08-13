@@ -17,6 +17,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "query_indexes_and_domain_registry",
         sql: include_str!("../migrations/0002_query_indexes_and_domain_registry.sql"),
     },
+    Migration {
+        version: 3,
+        name: "artifact_sources_and_claim_temporal",
+        sql: include_str!("../migrations/0003_artifact_sources_and_claim_temporal.sql"),
+    },
 ];
 
 struct Migration {
@@ -213,18 +218,18 @@ mod tests {
     fn clean_database_migrates_to_latest_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
         migrate(&mut connection).expect("clean migration should pass");
-        assert_eq!(current_version(&connection).expect("version"), 2);
+        assert_eq!(current_version(&connection).expect("version"), 3);
         migrate(&mut connection).expect("repeat migration should be idempotent");
-        assert_eq!(current_version(&connection).expect("version"), 2);
+        assert_eq!(current_version(&connection).expect("version"), 3);
     }
 
     #[test]
-    fn supported_upgrade_path_from_v1_to_v2_is_tested() {
+    fn supported_upgrade_path_from_v1_to_latest_is_tested() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
         migrate_to(&mut connection, 1).expect("version one should apply");
         assert_eq!(current_version(&connection).expect("version"), 1);
         migrate(&mut connection).expect("upgrade should apply");
-        assert_eq!(current_version(&connection).expect("version"), 2);
+        assert_eq!(current_version(&connection).expect("version"), 3);
         let package_table: String = connection
             .query_row(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'domain_packages'",

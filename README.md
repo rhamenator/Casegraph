@@ -7,11 +7,12 @@ that evidence to explain what happened, what matters, and what must happen next.
 
 ## Status
 
-Foundation implementation is in progress. The repository has a compiling modular workspace,
-validated environment configuration, a constrained canonical SQLite schema, checksummed migrations,
-and tests for clean/upgrade migrations, configuration safety, migration drift, and immutable
-artifact versions. Evidence application services, ingestion, API/CLI operations, and the end-to-end
-demonstration are not implemented yet. It is not a production application and contains no
+Foundation implementation is in progress. Implemented capabilities include validated canonical
+evidence types; exact decimal/money and uncertain temporal values; content-addressed immutable
+artifact storage; transactional case, ingestion, provenance, observation, claim, evidence,
+contradiction, verification, correction, and audit services; and checksummed SQLite migrations.
+The deterministic extraction pipeline, rules/workflow, grounded query, API/CLI operations, and
+end-to-end demonstration remain incomplete. It is not a production application and contains no
 production vertical.
 
 ## Architecture
@@ -22,7 +23,8 @@ and CLI adapters. SQLite is the initial authoritative embedded store; immutable 
 kept separately behind a storage port. No AI provider or cloud service is required.
 
 See [architecture](docs/architecture.md), [implementation plan](IMPLEMENTATION_PLAN.md), and the
-[dependency register](docs/dependencies.md).
+[dependency register](docs/dependencies.md). Canonical terminology and evidence semantics are in
+[the glossary](docs/domain-model.md) and [provenance guide](docs/provenance.md).
 
 ## Developer checks
 

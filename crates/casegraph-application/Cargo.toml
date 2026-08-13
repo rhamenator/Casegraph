@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 casegraph-domain = { path = "../casegraph-domain" }
 serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
-
