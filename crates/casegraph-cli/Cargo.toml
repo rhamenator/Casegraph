@@ -16,9 +16,9 @@ casegraph-application = { path = "../casegraph-application" }
 casegraph-domain = { path = "../casegraph-domain" }
 casegraph-infrastructure = { path = "../casegraph-infrastructure" }
 casegraph-sample-domain = { path = "../casegraph-sample-domain" }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
 [lints]
 workspace = true
-

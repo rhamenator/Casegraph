@@ -481,6 +481,29 @@ fn versioned_rule_materializes_explainable_workflow_and_is_reproducible() {
     );
     assert!(!answer.evidence_ids.is_empty());
 
+    let response_claim = extraction
+        .claims
+        .iter()
+        .find(|claim| claim.predicate == "response_required")
+        .expect("response claim");
+    let correction = fixture
+        .service
+        .correct_claim(CorrectClaimRequest {
+            claim_id: response_claim.id.clone(),
+            corrected_original_representation: "false".to_owned(),
+            corrected_value: KnowledgeValue::Known(MaterialValue::Boolean(false)),
+            corrected_temporal: None,
+            actor: "human:synthetic-reviewer".to_owned(),
+            rationale: Some("Invented post-evaluation correction".to_owned()),
+            correlation_id: None,
+        })
+        .expect("correction identifies derived state");
+    assert_eq!(
+        correction.affected_derivations,
+        vec![first.evaluation.id.clone()],
+        "dependent rule evaluation is explicitly identified for reevaluation"
+    );
+
     let unknown = fixture
         .rules
         .query(&case_record.id, "What is the invented_color?")

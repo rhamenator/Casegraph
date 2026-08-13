@@ -1,0 +1,5 @@
+name: Synthetic Alex
+received_date: 2026-08-12
+monthly_amount: $1,427.00
+response_required: true
+

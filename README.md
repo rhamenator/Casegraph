@@ -15,9 +15,10 @@ The staged deterministic pipeline currently extracts simple UTF-8 `key: value` t
 and CSV into provenance-backed claims without a model provider. A provider-neutral optional
 reasoning gateway enforces locality policy and strict output validation. A small versioned equality
 rules engine consumes verified facts and can atomically create evidence-linked obligations,
-deadlines, and tasks. Grounded querying emits explicit epistemic modes and citations. API/CLI
-operations, evaluation harness, and the documented runnable demonstration remain incomplete. It is
-not a production application and contains no production vertical.
+deadlines, and tasks. Grounded querying emits explicit epistemic modes and citations. A versioned
+HTTP API, useful CLI, structured diagnostic records, offline evaluation fixtures, and a runnable
+end-to-end demonstration are implemented. It remains a foundation—not a production vertical,
+polished review UI, or compliance-certified deployment.
 
 ## Architecture
 
@@ -33,6 +34,29 @@ Extraction/provider contracts and current format limits are in [the pipeline gui
 Rules, workflow causality, grounded answers, and domain extension are documented in
 [rules and workflow](docs/rules-workflow-query.md) and [domain packages](docs/domain-packages.md).
 
+## Quick start
+
+```console
+cargo run -p casegraph-cli --locked -- init
+cargo run -p casegraph-cli --locked -- demo
+```
+
+The demo uses invented records and runs immutable ingestion, two artifact versions, deterministic
+extraction/normalization, provenance-backed claims, a contradiction, human verification and
+correction, a versioned rule evaluation, obligation/deadline/task creation, and a grounded answer.
+It does not configure or invoke a model provider.
+
+For an incremental CLI workflow:
+
+```console
+cargo run -p casegraph-cli --locked -- case create "Synthetic Case"
+cargo run -p casegraph-cli --locked -- ingest fixtures/evaluation/text/simple_record.txt --case <case-id>
+cargo run -p casegraph-cli --locked -- claims list --case <case-id>
+```
+
+Run the loopback API with `cargo run -p casegraph-cli --locked -- serve`; its OpenAPI document is at
+`/openapi.json`.
+
 ## Developer checks
 
 Install the pinned Rust toolchain, then run:
@@ -44,6 +68,14 @@ cargo test --workspace --locked
 ```
 
 See [developer setup](docs/development.md) for configuration and migration details.
+
+## Current limitations
+
+SQLite and the filesystem store target a single service instance. Authentication/authorization is
+not implemented; the server binds to loopback by default and must not be exposed to untrusted
+networks. PDF/image bytes can be preserved but PDF extraction/OCR is not implemented. Query intent,
+rules, workflows, and package loading are deliberately narrow. See [limitations and scope](docs/limitations.md)
+and [security assumptions](docs/security.md).
 
 ## License
 

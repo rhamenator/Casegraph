@@ -411,6 +411,28 @@ impl CasegraphService {
         self.repository.list_claims(case_id)
     }
 
+    /// Retrieve a case through the shared service boundary.
+    pub fn get_case(&self, case_id: &RecordId) -> Result<Case, AppError> {
+        self.repository
+            .get_case(case_id)?
+            .ok_or_else(|| AppError::new(ErrorKind::NotFound, "case was not found"))
+    }
+
+    /// Retrieve immutable artifact-version metadata through the shared service boundary.
+    pub fn get_artifact_version(&self, version_id: &RecordId) -> Result<ArtifactVersion, AppError> {
+        self.repository
+            .get_artifact_version(version_id)?
+            .ok_or_else(|| AppError::new(ErrorKind::NotFound, "artifact version was not found"))
+    }
+
+    /// List immutable artifact versions for a case.
+    pub fn list_artifact_versions(
+        &self,
+        case_id: &RecordId,
+    ) -> Result<Vec<ArtifactVersion>, AppError> {
+        self.repository.list_artifact_versions(case_id)
+    }
+
     /// Recover the exact source bytes referenced by an immutable artifact version.
     pub fn read_artifact_version(&self, version_id: &RecordId) -> Result<Vec<u8>, AppError> {
         let version = self
@@ -656,6 +678,13 @@ mod tests {
             _version_id: &RecordId,
         ) -> Result<Option<ArtifactVersion>, AppError> {
             Ok(None)
+        }
+
+        fn list_artifact_versions(
+            &self,
+            _case_id: &RecordId,
+        ) -> Result<Vec<ArtifactVersion>, AppError> {
+            Ok(Vec::new())
         }
 
         fn get_provenance(

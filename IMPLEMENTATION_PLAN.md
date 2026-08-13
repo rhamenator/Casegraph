@@ -71,7 +71,7 @@ case queries never invent case-specific facts; core behavior is independent of t
 - Add the artificial sample domain package through a registry boundary and prove core startup/tests
   with it disabled.
 
-### 5. API, CLI, diagnostics, and end-to-end demonstration — in progress
+### 5. API, CLI, diagnostics, and end-to-end demonstration — complete
 
 Capability: shared application behavior through `/api/v1` and `casegraph`, with inspectable
 failures and health.
@@ -83,7 +83,7 @@ failures and health.
 - Add correlation-aware structured diagnostics plus liveness and dependency-aware readiness.
 - Add API and CLI contract tests and a runnable synthetic end-to-end scenario.
 
-### 6. Verification and handoff — pending
+### 6. Verification and handoff — in progress
 
 - Complete README, setup, glossary, provenance/evidence semantics, pipeline contracts, extension
   guide, API/CLI guide, testing/evaluation guide, security/privacy/threat assumptions, operations,

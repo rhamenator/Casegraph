@@ -355,9 +355,17 @@ impl RuleWorkflowService {
             rule_evaluation_ids: Vec::new(),
         })
     }
+
+    /// Inspect rule evaluations and workflow materializations for a case.
+    pub fn list_workflow(
+        &self,
+        case_id: &RecordId,
+    ) -> Result<Vec<WorkflowMaterialization>, AppError> {
+        self.repository.list_workflow(case_id)
+    }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RegisterRuleRequest {
     pub package_id: String,
     pub stable_key: String,
@@ -370,7 +378,7 @@ pub struct RegisterRuleRequest {
     pub correlation_id: Option<RecordId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EvaluateRuleRequest {
     pub case_id: RecordId,
     pub rule_version_id: RecordId,

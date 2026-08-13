@@ -1,0 +1,30 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Casegraph Foundation API",
+    "version": "0.1.0",
+    "description": "Versioned API for implemented Casegraph foundation capabilities."
+  },
+  "servers": [{"url": "/"}],
+  "paths": {
+    "/health/live": {"get": {"responses": {"200": {"description": "Process is live"}}}},
+    "/health/ready": {"get": {"responses": {"200": {"description": "Deterministic dependencies are ready"}}}},
+    "/api/v1/cases": {"post": {"responses": {"201": {"description": "Case created"}, "400": {"description": "Invalid input"}}}},
+    "/api/v1/cases/{case_id}": {"get": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Case"},"404":{"description":"Not found"}}}},
+    "/api/v1/cases/{case_id}/artifacts": {
+      "get": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Artifact versions"}}},
+      "post": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}},{"name":"x-casegraph-source-key","in":"header","required":true,"schema":{"type":"string"}},{"name":"x-casegraph-filename","in":"header","required":true,"schema":{"type":"string"}}],"requestBody":{"required":true,"content":{"application/octet-stream":{"schema":{"type":"string","contentEncoding":"binary"}}}},"responses":{"201":{"description":"Artifact ingested"},"413":{"description":"Artifact exceeds configured limit"}}}
+    },
+    "/api/v1/cases/{case_id}/claims": {"get": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Claims"}}}},
+    "/api/v1/cases/{case_id}/contradictions": {"get": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Contradictions"}}}},
+    "/api/v1/cases/{case_id}/query": {"post": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Grounded answer"}}}},
+    "/api/v1/cases/{case_id}/tasks": {"get": {"parameters": [{"name":"case_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Rule evaluations and workflow"}}}},
+    "/api/v1/artifacts/{version_id}": {"get": {"parameters": [{"name":"version_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Immutable artifact-version metadata"}}}},
+    "/api/v1/artifacts/{version_id}/extract": {"post": {"parameters": [{"name":"version_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Deterministic extraction result"},"400":{"description":"Unsupported or malformed input"}}}},
+    "/api/v1/provenance/{provenance_id}": {"get": {"parameters": [{"name":"provenance_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Recoverable provenance"}}}},
+    "/api/v1/claims/{claim_id}/verify": {"post": {"parameters": [{"name":"claim_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Review recorded"}}}},
+    "/api/v1/claims/{claim_id}/correct": {"post": {"parameters": [{"name":"claim_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"History-preserving correction recorded"}}}},
+    "/api/v1/rules": {"post": {"responses":{"201":{"description":"Rule version registered"}}}},
+    "/api/v1/rules/evaluate": {"post": {"responses":{"200":{"description":"Evaluation and optional workflow materialization"}}}}
+  }
+}

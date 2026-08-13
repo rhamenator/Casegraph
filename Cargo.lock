@@ -84,8 +84,10 @@ dependencies = [
  "axum",
  "casegraph-application",
  "casegraph-domain",
+ "casegraph-infrastructure",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -107,6 +109,7 @@ dependencies = [
  "casegraph-domain",
  "casegraph-infrastructure",
  "casegraph-sample-domain",
+ "serde",
  "serde_json",
  "tokio",
 ]

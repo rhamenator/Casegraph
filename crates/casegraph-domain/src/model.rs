@@ -290,6 +290,50 @@ pub struct Fact {
     pub established_by: String,
 }
 
+/// Domain-neutral case entity. Type vocabulary is contributed by packages.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Entity {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub entity_type: String,
+    pub display_name: String,
+    pub origin: AssertionOrigin,
+    pub primary_provenance_id: Option<RecordId>,
+    pub created_at: TimestampMs,
+    pub attributes_json: String,
+}
+
+/// Extensible relationship between entities.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Relationship {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub from_entity_id: RecordId,
+    pub relationship_type: String,
+    pub to_entity_id: RecordId,
+    pub confidence: Option<Confidence>,
+    pub origin: AssertionOrigin,
+    pub primary_provenance_id: Option<RecordId>,
+    pub valid_time: Option<TemporalValue>,
+    pub created_at: TimestampMs,
+}
+
+/// Event with distinct temporal concepts rather than one generic timestamp.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Event {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub event_type: String,
+    pub label: String,
+    pub event_time: Option<TemporalValue>,
+    pub effective_date: Option<Date>,
+    pub reported_date: Option<Date>,
+    pub received_date: Option<Date>,
+    pub origin: AssertionOrigin,
+    pub primary_provenance_id: Option<RecordId>,
+    pub created_at: TimestampMs,
+}
+
 /// An inspectable pair of incompatible claims.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Contradiction {
@@ -576,6 +620,30 @@ pub struct WorkflowTask {
     pub status: TaskStatus,
     pub created_at: TimestampMs,
     pub completed_at: Option<TimestampMs>,
+}
+
+/// Audited workflow action. Action handlers are deferred; the canonical boundary is explicit.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Action {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub task_id: Option<RecordId>,
+    pub action_type: String,
+    pub actor: String,
+    pub input_json: String,
+    pub performed_at: TimestampMs,
+    pub correlation_id: RecordId,
+}
+
+/// Result produced by one action.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Outcome {
+    pub id: RecordId,
+    pub case_id: RecordId,
+    pub action_id: RecordId,
+    pub outcome_type: String,
+    pub result_json: String,
+    pub recorded_at: TimestampMs,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

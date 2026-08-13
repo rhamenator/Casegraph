@@ -22,6 +22,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "artifact_sources_and_claim_temporal",
         sql: include_str!("../migrations/0003_artifact_sources_and_claim_temporal.sql"),
     },
+    Migration {
+        version: 4,
+        name: "append_only_evidence_guards",
+        sql: include_str!("../migrations/0004_append_only_evidence_guards.sql"),
+    },
 ];
 
 struct Migration {
@@ -218,9 +223,9 @@ mod tests {
     fn clean_database_migrates_to_latest_and_is_idempotent() {
         let mut connection = Connection::open_in_memory().expect("in-memory database");
         migrate(&mut connection).expect("clean migration should pass");
-        assert_eq!(current_version(&connection).expect("version"), 3);
+        assert_eq!(current_version(&connection).expect("version"), 4);
         migrate(&mut connection).expect("repeat migration should be idempotent");
-        assert_eq!(current_version(&connection).expect("version"), 3);
+        assert_eq!(current_version(&connection).expect("version"), 4);
     }
 
     #[test]
@@ -229,7 +234,7 @@ mod tests {
         migrate_to(&mut connection, 1).expect("version one should apply");
         assert_eq!(current_version(&connection).expect("version"), 1);
         migrate(&mut connection).expect("upgrade should apply");
-        assert_eq!(current_version(&connection).expect("version"), 3);
+        assert_eq!(current_version(&connection).expect("version"), 4);
         let package_table: String = connection
             .query_row(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'domain_packages'",

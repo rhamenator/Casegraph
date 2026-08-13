@@ -198,6 +198,28 @@ impl EvidenceRepository for SqliteEvidenceRepository {
         load_artifact_version(&connection, version_id)
     }
 
+    fn list_artifact_versions(&self, case_id: &RecordId) -> Result<Vec<ArtifactVersion>, AppError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT v.id FROM artifact_versions v \
+                 JOIN artifacts a ON a.id = v.artifact_id \
+                 WHERE a.case_id = ?1 ORDER BY a.created_at_ms, v.version_number, v.id",
+            )
+            .map_err(database_error)?;
+        let rows = statement
+            .query_map([case_id.as_str()], |row| row.get::<_, String>(0))
+            .map_err(database_error)?;
+        let mut versions = Vec::new();
+        for row in rows {
+            let id = parse_id(row.map_err(database_error)?)?;
+            versions.push(load_artifact_version(&connection, &id)?.ok_or_else(|| {
+                AppError::new(ErrorKind::Internal, "listed artifact version was not found")
+            })?);
+        }
+        Ok(versions)
+    }
+
     fn get_provenance(
         &self,
         provenance_id: &RecordId,

@@ -225,7 +225,11 @@ fn parse_csv(text: &str) -> Result<Vec<Vec<String>>, PipelineError> {
                     field.pop();
                 }
                 record.push(std::mem::take(&mut field));
-                records.push(std::mem::take(&mut record));
+                if record.iter().any(|value| !value.is_empty()) {
+                    records.push(std::mem::take(&mut record));
+                } else {
+                    record.clear();
+                }
             }
             _ => field.push(character),
         }

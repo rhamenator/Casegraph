@@ -148,6 +148,7 @@ pub trait EvidenceRepository: Send + Sync {
         &self,
         version_id: &RecordId,
     ) -> Result<Option<ArtifactVersion>, AppError>;
+    fn list_artifact_versions(&self, case_id: &RecordId) -> Result<Vec<ArtifactVersion>, AppError>;
     fn get_provenance(
         &self,
         provenance_id: &RecordId,
