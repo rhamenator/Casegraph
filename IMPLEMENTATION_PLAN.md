@@ -47,7 +47,7 @@ history.
   human reviews, corrections, and audit events.
 - Add unit, persistence, property/invariant, malformed-input, and path-traversal tests.
 
-### 3. Deterministic pipeline and reasoning boundary — in progress
+### 3. Deterministic pipeline and reasoning boundary — complete
 
 Capability: deterministic text/JSON/CSV extraction, normalization, validation, and evidence
 creation without an AI provider.
@@ -59,7 +59,7 @@ creation without an AI provider.
 - Measure extraction, normalization, provenance completeness, contradiction detection, and
   unsupported-claim rate on synthetic fixtures.
 
-### 4. Rules, workflow, grounding, and sample extension — pending
+### 4. Rules, workflow, grounding, and sample extension — in progress
 
 Invariants: rule evaluations are reproducible; workflow work preserves its causal explanation;
 case queries never invent case-specific facts; core behavior is independent of the sample package.

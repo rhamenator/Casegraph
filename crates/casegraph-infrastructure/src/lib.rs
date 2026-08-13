@@ -5,9 +5,11 @@
 pub mod adapters;
 pub mod artifact_store;
 pub mod config;
+pub mod extractors;
 pub mod migrations;
 pub mod sqlite_repository;
 
 pub use adapters::{Sha256IdGenerator, SystemClock};
 pub use artifact_store::FilesystemArtifactStore;
+pub use extractors::CoreDeterministicExtractor;
 pub use sqlite_repository::SqliteEvidenceRepository;

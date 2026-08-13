@@ -1,12 +1,15 @@
 use casegraph_application::{
-    CasegraphService, CorrectClaimRequest, CreateCaseRequest, IdGenerator, IngestBytesRequest,
-    RecordExternalClaimRequest, ReviewClaimRequest,
+    CasegraphService, CorrectClaimRequest, CreateCaseRequest, ExtractArtifactRequest,
+    ExtractionPipeline, IdGenerator, IngestBytesRequest, PipelineStage, RecordExternalClaimRequest,
+    ReviewClaimRequest,
 };
 use casegraph_domain::{
     Confidence, Decimal, KnowledgeValue, MaterialValue, Money, RecordId, ReviewDecision,
     TimestampMs,
 };
-use casegraph_infrastructure::{FilesystemArtifactStore, SqliteEvidenceRepository, SystemClock};
+use casegraph_infrastructure::{
+    CoreDeterministicExtractor, FilesystemArtifactStore, SqliteEvidenceRepository, SystemClock,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -313,4 +316,48 @@ fn equal_known_claims_corroborate_instead_of_contradicting() {
     );
     assert!(second.contradictions.is_empty());
     assert_eq!(second.corroborates, vec![first.claim.id]);
+}
+
+#[test]
+fn deterministic_pipeline_creates_provenance_without_any_model_provider() {
+    let fixture = Fixture::new();
+    let case_record = fixture.create_case();
+    let ingestion = fixture.ingest(
+        &case_record.id,
+        b"received_date: 2026-08-12\namount: $1,427.00\nactive: false\n",
+    );
+    let pipeline = ExtractionPipeline::new(
+        fixture.service.clone(),
+        vec![Arc::new(CoreDeterministicExtractor)],
+    );
+    let result = pipeline
+        .extract(ExtractArtifactRequest {
+            case_id: case_record.id.clone(),
+            artifact_version_id: ingestion.artifact_version.id.clone(),
+            media_type: "text/plain".to_owned(),
+            connector: Some("filesystem".to_owned()),
+            actor: "system:deterministic-pipeline".to_owned(),
+            correlation_id: None,
+        })
+        .expect("deterministic extraction");
+    assert_eq!(result.claims.len(), 3);
+    assert_eq!(result.stages.first(), Some(&PipelineStage::Classification));
+    assert_eq!(result.stages.last(), Some(&PipelineStage::EvidenceCreation));
+    for claim in result.claims {
+        let provenance = fixture
+            .service
+            .get_provenance(
+                claim
+                    .primary_provenance_id
+                    .as_ref()
+                    .expect("external claim has provenance"),
+            )
+            .expect("recover provenance");
+        assert_eq!(
+            provenance.artifact_version_id,
+            Some(ingestion.artifact_version.id.clone())
+        );
+        assert_eq!(provenance.model_provider, None);
+        assert_eq!(provenance.extraction_method, "deterministic");
+    }
 }
