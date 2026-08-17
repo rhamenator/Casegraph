@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/logo.png" alt="Casegraph logo" width="220">
+</p>
+
 # Casegraph
 
 Casegraph is a domain-neutral foundation for turning messy records into traceable evidence and using
