@@ -42,6 +42,15 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         var record = await db.Records.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == id, ct) ?? throw new GraphNotFoundException();
         return Snapshot(record);
     }
+    /// Resolve an exact immutable revision without loading the entity's whole history.
+    public async Task<EntitySnapshot> GetVersionAsync(EntityVersion version, CancellationToken ct = default)
+    {
+        if (version is null || version.Id == Guid.Empty || version.Revision < 1) throw new ArgumentException("Invalid entity version.");
+        var current = await db.Records.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == version.Id, ct) ?? throw new GraphNotFoundException();
+        var revision = await db.Revisions.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.EntityId == version.Id && x.Revision == version.Revision, ct) ?? throw new GraphNotFoundException();
+        return new(current.Id, current.Kind, revision.Revision, current.Sensitivity,
+            JsonSerializer.Deserialize<JsonElement>(cipher.Decrypt(revision.EnvelopeJson, Aad(context.Tenant, current.Kind, current.Id, revision.Revision, current.Sensitivity))));
+    }
     public async Task<IReadOnlyList<EntitySnapshot>> ListAsync(string kind, CancellationToken ct = default)
     {
         ValidateKind(kind);

@@ -13,6 +13,7 @@ public sealed record GraphContext
     }
     static bool Valid(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 100 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or ':' or '.');
 }
+public sealed record EntityVersion(Guid Id, int Revision);
 public sealed record EntitySnapshot(Guid Id, string Kind, int Revision, Sensitivity Sensitivity, JsonElement Data);
 public sealed record RelationshipData(Guid From, string Type, Guid To);
 public sealed record ArtifactData(string Sha256, string MediaType, string BytesBase64);
