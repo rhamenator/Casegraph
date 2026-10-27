@@ -2,14 +2,19 @@ using System.Text.Json;
 namespace Casegraph;
 
 public enum Sensitivity { Public, Internal, Confidential, Restricted }
+[Flags]
+public enum GraphCapabilities { None = 0, Read = 1, Write = 2, Export = 4, All = Read | Write | Export }
+public sealed class GraphAccessDeniedException() : Exception("Graph access denied.");
 public sealed record GraphContext
 {
     public string Tenant { get; }
     public string Actor { get; }
-    public GraphContext(string tenant, string actor)
+    public GraphCapabilities Capabilities { get; }
+    public void Require(GraphCapabilities capability) { if ((Capabilities & capability) != capability) throw new GraphAccessDeniedException(); }
+    public GraphContext(string tenant, string actor, GraphCapabilities capabilities = GraphCapabilities.All)
     {
-        if (!Valid(tenant) || !Valid(actor)) throw new ArgumentException("Invalid security context.");
-        Tenant = tenant; Actor = actor;
+        if (!Valid(tenant) || !Valid(actor) || (capabilities & ~GraphCapabilities.All) != 0) throw new ArgumentException("Invalid security context.");
+        Tenant = tenant; Actor = actor; Capabilities = capabilities;
     }
     static bool Valid(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 100 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or ':' or '.');
 }

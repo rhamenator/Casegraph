@@ -14,6 +14,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<EntitySnapshot> CreateAsync<T>(string kind, T data, Sensitivity sensitivity = Sensitivity.Restricted, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Write);
         ValidateKind(kind);
         if (kind is "artifact" or "observation" or "relationship") throw new ArgumentException("Use the evidence creation methods.");
         return await InsertAsync(kind, data, sensitivity, ct);
@@ -21,6 +22,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     /// Stable caller-owned IDs support idempotent commands within a tenant.
     public async Task<EntitySnapshot> CreateWithIdAsync<T>(Guid id, string kind, T data, Sensitivity sensitivity = Sensitivity.Restricted, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Write);
         ValidateKind(kind);
         if (id == Guid.Empty || kind is "artifact" or "observation" or "relationship") throw new ArgumentException("Invalid stable entity request.");
         if (await db.Records.AsNoTracking().AnyAsync(x => x.Tenant == context.Tenant && x.Id == id, ct)) throw new GraphConflictException();
@@ -39,12 +41,14 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<EntitySnapshot> GetAsync(Guid id, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         var record = await db.Records.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == id, ct) ?? throw new GraphNotFoundException();
         return Snapshot(record);
     }
     /// Resolve an exact immutable revision without loading the entity's whole history.
     public async Task<EntitySnapshot> GetVersionAsync(EntityVersion version, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         if (version is null || version.Id == Guid.Empty || version.Revision < 1) throw new ArgumentException("Invalid entity version.");
         var current = await db.Records.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == version.Id, ct) ?? throw new GraphNotFoundException();
         var revision = await db.Revisions.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.EntityId == version.Id && x.Revision == version.Revision, ct) ?? throw new GraphNotFoundException();
@@ -53,6 +57,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<IReadOnlyList<EntitySnapshot>> ListAsync(string kind, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         ValidateKind(kind);
         var records = await db.Records.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.Kind == kind).OrderBy(x => x.Id).Take(501).ToListAsync(ct);
         if (records.Count > 500) throw new InvalidOperationException("Use paged listing for more than 500 records.");
@@ -60,6 +65,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<IReadOnlyList<EntitySnapshot>> ListPageAsync(string kind, int offset, int limit = 100, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         ValidateKind(kind);
         if (offset < 0 || limit is < 1 or > 100) throw new ArgumentException("Invalid page.");
         var records = await db.Records.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.Kind == kind).OrderBy(x => x.Id).Skip(offset).Take(limit).ToListAsync(ct);
@@ -68,6 +74,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     /// One bounded page plus lookahead; only returned records are decrypted. Continuation is not a snapshot cursor.
     public async Task<GraphPage<EntitySnapshot>> ReadPageAsync(string kind, int offset = 0, int limit = 50, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         ValidateKind(kind);
         if (offset < 0 || offset > int.MaxValue - 101 || limit is < 1 or > 100) throw new ArgumentException("Invalid page.");
         var records = await db.Records.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.Kind == kind)
@@ -77,6 +84,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     /// Search encrypted payloads using bounded pages, stopping at the first match. No cleartext index is created.
     public async Task<bool> AnyAsync(string kind, Func<EntitySnapshot, bool> predicate, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         ArgumentNullException.ThrowIfNull(predicate);
         var offset = 0;
         while (true)
@@ -94,6 +102,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<EntitySnapshot> ReviseAsync<T>(Guid id, int expectedRevision, T data, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Write);
         var record = await db.Records.SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == id, ct) ?? throw new GraphNotFoundException();
         if (record.Kind is "artifact" or "observation" or "relationship" or "workflow.definition" or "receipt") throw new InvalidOperationException("Evidence is immutable.");
         if (record.Revision != expectedRevision) throw new GraphConflictException();
@@ -105,16 +114,19 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<EntitySnapshot> RelateAsync(Guid from, string relationshipType, Guid to, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Write);
         ValidateKind(relationshipType); await GetAsync(from, ct); await GetAsync(to, ct);
         return await InsertAsync("relationship", new RelationshipData(from, relationshipType, to), Sensitivity.Restricted, ct);
     }
     public async Task<EntitySnapshot> AddArtifactAsync(byte[] bytes, string mediaType, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Write);
         if (bytes.Length is 0 or > 2097152 || mediaType.Length > 150) throw new ArgumentException("Invalid artifact.");
         return await InsertAsync("artifact", new ArtifactData(Convert.ToHexStringLower(SHA256.HashData(bytes)), mediaType, Convert.ToBase64String(bytes)), Sensitivity.Restricted, ct);
     }
     public async Task<EntitySnapshot> AddObservationAsync(ObservationData observation, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Write);
         if ((await GetAsync(observation.ArtifactId, ct)).Kind != "artifact") throw new ArgumentException("Source must be an artifact.");
         if (string.IsNullOrWhiteSpace(observation.Engine) || string.IsNullOrWhiteSpace(observation.EngineVersion) || observation.ConfigurationSha256.Length != 64)
             throw new ArgumentException("Processing profile is required.");
@@ -122,6 +134,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<IReadOnlyList<EntitySnapshot>> HistoryAsync(Guid id, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         var current = await GetAsync(id, ct);
         var revisions = await db.Revisions.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision).ToListAsync(ct);
         return revisions.Select(x => new EntitySnapshot(id, current.Kind, x.Revision, current.Sensitivity,
@@ -129,12 +142,14 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     public async Task<IReadOnlyList<AuditEvent>> AuditAsync(Guid id, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read);
         await GetAsync(id, ct);
         return await db.Audit.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision)
             .Select(x => new AuditEvent(x.Id, x.Tenant, x.Actor, x.EntityId, x.Revision, x.Action, x.At)).ToListAsync(ct);
     }
     public async Task RecordExportAsync(Guid id, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read | GraphCapabilities.Export);
         var record = await GetAsync(id, ct);
         db.Audit.Add(new AuditRow { Id = Guid.NewGuid(), Tenant = context.Tenant, Actor = context.Actor, EntityId = id, Revision = record.Revision, Action = "exported", At = DateTimeOffset.UtcNow });
         await SaveAsync(ct);
@@ -143,6 +158,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     /// References are immutable; export delivery itself is outside the database transaction.
     public async Task RecordVersionExportsAsync(IReadOnlyList<EntityVersion> versions, CancellationToken ct = default)
     {
+        context.Require(GraphCapabilities.Read | GraphCapabilities.Export);
         if (versions is null || versions.Count is < 1 or > 100 || versions.Any(v => v is null || v.Id == Guid.Empty || v.Revision < 1) || versions.Distinct().Count() != versions.Count)
             throw new ArgumentException("Invalid export references.");
         foreach (var version in versions) await GetVersionAsync(version, ct);
