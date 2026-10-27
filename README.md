@@ -87,3 +87,7 @@ and [security assumptions](docs/security.md).
 ## License
 
 Casegraph is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
+
+## .NET subproject
+
+The independently buildable [.NET foundation](dotnet/README.md) adds EF Core SQLite/PostgreSQL persistence, tenant-scoped encrypted entities/evidence, immutable revisions and explicit workflow primitives. It is an incremental implementation with its own tests, not a parity claim for the Rust system. The Recruitment ATS consumes this foundation; document extraction remains independent.

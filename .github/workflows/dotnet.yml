@@ -1,0 +1,45 @@
+name: Casegraph .NET
+on:
+  push:
+    paths: ['dotnet/**', '.github/workflows/dotnet.yml']
+  pull_request:
+    paths: ['dotnet/**', '.github/workflows/dotnet.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore dotnet/Casegraph.slnx --locked-mode
+      - run: dotnet test dotnet/Casegraph.slnx --configuration Release --no-restore
+      - run: dotnet pack dotnet/src/Casegraph --configuration Release --no-build
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: synthetic
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: casegraph_synthetic
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U synthetic -d casegraph_synthetic"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      CASEGRAPH_TEST_POSTGRES: Host=localhost;Database=casegraph_synthetic;Username=synthetic;Password=synthetic-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore dotnet/Casegraph.slnx --locked-mode
+      - run: dotnet test dotnet/Casegraph.slnx --configuration Release --no-restore
