@@ -6,6 +6,8 @@ public enum OperationFailure { InvalidInput, TransientProcessing, ProcessingFail
 public sealed record OperationData(string Type, Guid SubjectId, int ExpectedSubjectRevision, JsonElement Parameters,
     OperationStatus Status, int Attempts, int MaxAttempts, Guid? LeaseToken = null, DateTimeOffset? LeaseUntil = null,
     DateTimeOffset? RetryAfter = null, OperationFailure? Failure = null, Guid? ResultId = null, int SchemaVersion = 1);
+public sealed record OperationCandidate(Guid Id, int Revision);
+public sealed record OperationScan(IReadOnlyList<OperationCandidate> Candidates, int NextOffset);
 public sealed record OperationLease(Guid Id, Guid Token, OperationData Data);
 public sealed class OperationNotReadyException() : Exception("Operation is not available for processing.");
 
@@ -19,6 +21,23 @@ public sealed class GraphOperationService(GraphStore graph, TimeProvider? timePr
         var data = snapshot.Data.Deserialize<OperationData>() ?? throw new ArgumentException("Invalid operation.");
         if (data.SchemaVersion != 1) throw new ArgumentException("Unsupported operation schema.");
         return data;
+    }
+    /// Bounded discovery only; callers must still claim with the returned revision. No payloads escape the scan.
+    /// Offsets refer to all tenant operations, including unrelated types and terminal jobs.
+    public async Task<OperationScan> ScanReadyAsync(string type, int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(type) || type.Length > 80 || !type.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-')) throw new ArgumentException("Invalid operation type.");
+        var page = await graph.ListPageAsync("operation", offset, limit, ct);
+        var now = time.GetUtcNow();
+        var candidates = page.Where(snapshot =>
+        {
+            var data = Read(snapshot);
+            return data.Type == type && (data.Status == OperationStatus.Queued ||
+                data.Status == OperationStatus.RetryPending && data.RetryAfter <= now ||
+                data.Status == OperationStatus.Running && data.LeaseUntil <= now);
+        }).Select(snapshot => new OperationCandidate(snapshot.Id, snapshot.Revision)).ToArray();
+        // Full pages may be followed by an empty page. Wrapping ensures later insertions are eventually visited.
+        return new(candidates, page.Count < limit ? 0 : checked(offset + page.Count));
     }
     public async Task<EntitySnapshot> GetAsync(Guid id, CancellationToken ct = default)
     {

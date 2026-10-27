@@ -126,4 +126,36 @@ public sealed class OperationTests : IAsyncLifetime
         time.Advance(TimeSpan.FromSeconds(11));
         Assert.NotNull(await service.ClaimAsync(job.Id, 2, TimeSpan.FromSeconds(10)));
     }
+    [Fact]
+    public async Task ReadyScanHonorsDueTimesTypesTenantsAndBoundedTraversal()
+    {
+        var queued = await Queue(); var running = await Queue(); var retry = await Queue(); var done = await Queue();
+        await operations.ClaimAsync(running.Id, 1, TimeSpan.FromSeconds(10));
+        var lease = (await operations.ClaimAsync(retry.Id, 1, TimeSpan.FromSeconds(10)))!;
+        await operations.FailAsync(retry.Id, lease.Token, OperationFailure.TransientProcessing, true);
+        lease = (await operations.ClaimAsync(done.Id, 1, TimeSpan.FromSeconds(10)))!;
+        await operations.CompleteAsync(done.Id, lease.Token, lease.Data.SubjectId);
+        await operations.EnqueueAsync(Guid.NewGuid(), "other.processing", lease.Data.SubjectId, 1, JsonSerializer.SerializeToElement(new { }));
+        async Task<HashSet<Guid>> Sweep()
+        {
+            var ids = new HashSet<Guid>(); var offset = 0; var pages = 0;
+            do
+            {
+                var page = await operations.ScanReadyAsync("test.processing", offset, 2);
+                Assert.True(page.Candidates.Count <= 2);
+                foreach (var candidate in page.Candidates) ids.Add(candidate.Id);
+                offset = page.NextOffset; pages++;
+            } while (offset != 0 && pages < 10);
+            Assert.Equal(0, offset); Assert.Equal(3, pages); return ids;
+        }
+        Assert.Equal(new[] { queued.Id }, (await Sweep()).ToArray());
+        time.Advance(TimeSpan.FromSeconds(11));
+        Assert.True((await Sweep()).SetEquals([queued.Id, running.Id, retry.Id]));
+        var other = new GraphOperationService(new GraphStore(db, Cipher(), new("other", "worker")), time);
+        Assert.Empty((await other.ScanReadyAsync("test.processing")).Candidates);
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.ScanReadyAsync("test.processing", -1));
+        await Assert.ThrowsAsync<ArgumentException>(() => operations.ScanReadyAsync("test.processing", limit: 101));
+        await Assert.ThrowsAsync<GraphConflictException>(() => operations.ClaimAsync(running.Id, 1, TimeSpan.FromSeconds(10)));
+    }
+
 }
