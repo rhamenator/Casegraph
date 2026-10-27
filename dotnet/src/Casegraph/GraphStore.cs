@@ -65,6 +65,33 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         var records = await db.Records.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.Kind == kind).OrderBy(x => x.Id).Skip(offset).Take(limit).ToListAsync(ct);
         return records.Select(Snapshot).ToArray();
     }
+    /// One bounded page plus lookahead; only returned records are decrypted. Continuation is not a snapshot cursor.
+    public async Task<GraphPage<EntitySnapshot>> ReadPageAsync(string kind, int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        ValidateKind(kind);
+        if (offset < 0 || offset > int.MaxValue - 101 || limit is < 1 or > 100) throw new ArgumentException("Invalid page.");
+        var records = await db.Records.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.Kind == kind)
+            .OrderBy(x => x.Id).Skip(offset).Take(limit + 1).ToListAsync(ct);
+        return new(records.Take(limit).Select(Snapshot).ToArray(), records.Count > limit ? checked(offset + limit) : null);
+    }
+    /// Search encrypted payloads using bounded pages, stopping at the first match. No cleartext index is created.
+    public async Task<bool> AnyAsync(string kind, Func<EntitySnapshot, bool> predicate, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        var offset = 0;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var page = await ReadPageAsync(kind, offset, 10, ct);
+            foreach (var item in page.Items)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (predicate(item)) return true;
+            }
+            if (page.NextOffset is not int next) return false;
+            offset = next;
+        }
+    }
     public async Task<EntitySnapshot> ReviseAsync<T>(Guid id, int expectedRevision, T data, CancellationToken ct = default)
     {
         var record = await db.Records.SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == id, ct) ?? throw new GraphNotFoundException();
