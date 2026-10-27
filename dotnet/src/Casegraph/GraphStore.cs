@@ -17,12 +17,20 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         if (kind is "artifact" or "observation" or "relationship") throw new ArgumentException("Use the evidence creation methods.");
         return await InsertAsync(kind, data, sensitivity, ct);
     }
-    async Task<EntitySnapshot> InsertAsync<T>(string kind, T data, Sensitivity sensitivity, CancellationToken ct)
+    /// Stable caller-owned IDs support idempotent commands within a tenant.
+    public async Task<EntitySnapshot> CreateWithIdAsync<T>(Guid id, string kind, T data, Sensitivity sensitivity = Sensitivity.Restricted, CancellationToken ct = default)
+    {
+        ValidateKind(kind);
+        if (id == Guid.Empty || kind is "artifact" or "observation" or "relationship") throw new ArgumentException("Invalid stable entity request.");
+        if (await db.Records.AsNoTracking().AnyAsync(x => x.Tenant == context.Tenant && x.Id == id, ct)) throw new GraphConflictException();
+        return await InsertAsync(kind, data, sensitivity, ct, id);
+    }
+    async Task<EntitySnapshot> InsertAsync<T>(string kind, T data, Sensitivity sensitivity, CancellationToken ct, Guid? id = null)
     {
         if (!Enum.IsDefined(sensitivity)) throw new ArgumentException("Invalid sensitivity.");
         var json = JsonSerializer.SerializeToUtf8Bytes(data);
         if (json.Length > 8 * 1024 * 1024) throw new ArgumentException("Payload exceeds limit.");
-        var record = new GraphRecord { Tenant = context.Tenant, Id = Guid.NewGuid(), Kind = kind, Revision = 1, Sensitivity = sensitivity };
+        var record = new GraphRecord { Tenant = context.Tenant, Id = id ?? Guid.NewGuid(), Kind = kind, Revision = 1, Sensitivity = sensitivity };
         record.EnvelopeJson = cipher.Encrypt(json, Aad(record.Tenant, kind, record.Id, 1, record.Sensitivity));
         db.Records.Add(record); AddHistory(record, "created");
         await SaveAsync(ct);
@@ -106,8 +114,10 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException) { db.ChangeTracker.Clear(); throw new GraphConflictException(); }
         // PostgreSQL can insert the competing history row before executing the optimistic UPDATE.
-        // Map only this history constraint, preserving unrelated persistence failures.
-        catch (DbUpdateException error) when (error.InnerException is Npgsql.PostgresException { SqlState: "23505", ConstraintName: "PK_Revisions" })
+        // Map only history/stable-identity key conflicts, preserving unrelated persistence failures.
+        catch (DbUpdateException error) when (error.InnerException is Npgsql.PostgresException { SqlState: "23505", ConstraintName: "PK_Revisions" or "PK_Records" })
+        { db.ChangeTracker.Clear(); throw new GraphConflictException(); }
+        catch (DbUpdateException error) when (error.InnerException is Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 1555 })
         { db.ChangeTracker.Clear(); throw new GraphConflictException(); }
     }
 }

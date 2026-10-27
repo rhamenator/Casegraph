@@ -8,6 +8,7 @@ public sealed class PostgresFactAttribute : FactAttribute
 {
     public PostgresFactAttribute() { if (Environment.GetEnvironmentVariable("CASEGRAPH_TEST_POSTGRES") is null) Skip = "Set CASEGRAPH_TEST_POSTGRES to an isolated synthetic PostgreSQL database."; }
 }
+[Collection("PostgreSQL")]
 public sealed class PostgresTests
 {
     [PostgresFact]
