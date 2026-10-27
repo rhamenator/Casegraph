@@ -6,6 +6,7 @@ namespace Casegraph;
 /// Domain-neutral graph access. Context must originate from authenticated server identity.
 public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext context)
 {
+    readonly List<AuditRow> pendingAudits = [];
     static string Aad(string tenant, string kind, Guid id, int revision, Sensitivity sensitivity) => $"casegraph:v1:{tenant}:{kind}:{id:D}:{revision}:{sensitivity}";
     static void ValidateKind(string kind)
     {
@@ -32,7 +33,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         if (json.Length > 8 * 1024 * 1024) throw new ArgumentException("Payload exceeds limit.");
         var record = new GraphRecord { Tenant = context.Tenant, Id = id ?? Guid.NewGuid(), Kind = kind, Revision = 1, Sensitivity = sensitivity };
         record.EnvelopeJson = cipher.Encrypt(json, Aad(record.Tenant, kind, record.Id, 1, record.Sensitivity));
-        db.Records.Add(record); AddHistory(record, "created");
+        db.Records.Add(record); QueueAudit(record, "created");
         await SaveAsync(ct);
         return Snapshot(record);
     }
@@ -58,13 +59,13 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     public async Task<EntitySnapshot> ReviseAsync<T>(Guid id, int expectedRevision, T data, CancellationToken ct = default)
     {
         var record = await db.Records.SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == id, ct) ?? throw new GraphNotFoundException();
-        if (record.Kind is "artifact" or "observation" or "relationship" or "workflow.definition") throw new InvalidOperationException("Evidence is immutable.");
+        if (record.Kind is "artifact" or "observation" or "relationship" or "workflow.definition" or "receipt") throw new InvalidOperationException("Evidence is immutable.");
         if (record.Revision != expectedRevision) throw new GraphConflictException();
         var json = JsonSerializer.SerializeToUtf8Bytes(data);
         if (json.Length > 8 * 1024 * 1024) throw new ArgumentException("Payload exceeds limit.");
         record.Revision++;
         record.EnvelopeJson = cipher.Encrypt(json, Aad(record.Tenant, record.Kind, record.Id, record.Revision, record.Sensitivity));
-        AddHistory(record, "revised"); await SaveAsync(ct); return Snapshot(record);
+        QueueAudit(record, "revised"); await SaveAsync(ct); return Snapshot(record);
     }
     public async Task<EntitySnapshot> RelateAsync(Guid from, string relationshipType, Guid to, CancellationToken ct = default)
     {
@@ -104,20 +105,37 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     }
     EntitySnapshot Snapshot(GraphRecord record) => new(record.Id, record.Kind, record.Revision, record.Sensitivity,
         JsonSerializer.Deserialize<JsonElement>(cipher.Decrypt(record.EnvelopeJson, Aad(record.Tenant, record.Kind, record.Id, record.Revision, record.Sensitivity))));
-    void AddHistory(GraphRecord record, string action)
+    void QueueAudit(GraphRecord record, string action)
     {
-        db.Revisions.Add(new GraphRevision { Tenant = record.Tenant, EntityId = record.Id, Revision = record.Revision, EnvelopeJson = record.EnvelopeJson });
-        db.Audit.Add(new AuditRow { Id = Guid.NewGuid(), Tenant = context.Tenant, Actor = context.Actor, EntityId = record.Id, Revision = record.Revision, Action = action, At = DateTimeOffset.UtcNow });
+        pendingAudits.Add(new AuditRow { Id = Guid.NewGuid(), Tenant = context.Tenant, Actor = context.Actor, EntityId = record.Id, Revision = record.Revision, Action = action, At = DateTimeOffset.UtcNow });
     }
     async Task SaveAsync(CancellationToken ct)
     {
-        try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateConcurrencyException) { db.ChangeTracker.Clear(); throw new GraphConflictException(); }
-        // PostgreSQL can insert the competing history row before executing the optimistic UPDATE.
-        // Map only history/stable-identity key conflicts, preserving unrelated persistence failures.
-        catch (DbUpdateException error) when (error.InnerException is Npgsql.PostgresException { SqlState: "23505", ConstraintName: "PK_Revisions" or "PK_Records" })
-        { db.ChangeTracker.Clear(); throw new GraphConflictException(); }
-        catch (DbUpdateException error) when (error.InnerException is Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 1555 })
-        { db.ChangeTracker.Clear(); throw new GraphConflictException(); }
+        try { await GraphMigrator.RequireCurrentAsync(db, ct); }
+        catch { pendingAudits.Clear(); db.ChangeTracker.Clear(); throw; }
+        var audits = pendingAudits.ToArray(); pendingAudits.Clear();
+        var outer = db.Database.CurrentTransaction;
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? started = null;
+        try { if (outer is null) started = await db.Database.BeginTransactionAsync(ct); }
+        catch { db.ChangeTracker.Clear(); throw; }
+        await using var owned = started;
+        var transaction = outer ?? owned!; var savepoint = "cg_" + Guid.NewGuid().ToString("N");
+        if (outer is not null) await transaction.CreateSavepointAsync(savepoint, ct);
+        try
+        {
+            // Database triggers create immutable snapshots before the corresponding audit insert.
+            await db.SaveChangesAsync(ct);
+            if (audits.Length > 0) { db.Audit.AddRange(audits); await db.SaveChangesAsync(ct); }
+            if (owned is not null) await owned.CommitAsync(ct); else await transaction.ReleaseSavepointAsync(savepoint, ct);
+        }
+        catch (Exception error)
+        {
+            if (owned is not null) await owned.RollbackAsync(CancellationToken.None); else await transaction.RollbackToSavepointAsync(savepoint, CancellationToken.None);
+            db.ChangeTracker.Clear();
+            if (error is DbUpdateConcurrencyException || error is DbUpdateException { InnerException: Npgsql.PostgresException { SqlState: "23505", ConstraintName: "PK_Revisions" or "PK_Records" } } ||
+                error is DbUpdateException { InnerException: Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 1555 } } ||
+                error is DbUpdateException { InnerException: Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 1811 } sqlite } && sqlite.Message.Contains("casegraph identity conflict", StringComparison.Ordinal)) throw new GraphConflictException();
+            throw;
+        }
     }
 }

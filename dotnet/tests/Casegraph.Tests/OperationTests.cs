@@ -18,7 +18,7 @@ public sealed class OperationTests : IAsyncLifetime
     PayloadCipher Cipher() => new(new KeyRing("test", new Dictionary<string, byte[]> { ["test"] = new byte[32] }));
     public async Task InitializeAsync()
     {
-        await connection.OpenAsync(); db = new(new DbContextOptionsBuilder<GraphDb>().UseSqlite(connection).Options); await db.Database.EnsureCreatedAsync();
+        await connection.OpenAsync(); db = new(new DbContextOptionsBuilder<GraphDb>().UseSqlite(connection).Options); await GraphMigrator.ApplyAsync(db);
         graph = new(db, Cipher(), new("one", "synthetic-worker")); operations = new(graph, time);
     }
     public async Task DisposeAsync() { await db.DisposeAsync(); await connection.DisposeAsync(); }

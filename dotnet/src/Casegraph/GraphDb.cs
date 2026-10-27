@@ -3,6 +3,7 @@ namespace Casegraph;
 
 public sealed class GraphDb(DbContextOptions<GraphDb> options) : DbContext(options)
 {
+    internal bool SchemaValidated { get; set; }
     internal DbSet<GraphRecord> Records => Set<GraphRecord>();
     internal DbSet<GraphRevision> Revisions => Set<GraphRevision>();
     internal DbSet<AuditRow> Audit => Set<AuditRow>();
@@ -30,7 +31,7 @@ public sealed class GraphDb(DbContextOptions<GraphDb> options) : DbContext(optio
                 throw new InvalidOperationException("Evidence history is append-only.");
             if (entry.Entity is GraphRecord record && entry.State is EntityState.Modified or EntityState.Deleted)
             {
-                if (entry.State == EntityState.Deleted || record.Kind is "artifact" or "observation" or "relationship" or "workflow.definition")
+                if (entry.State == EntityState.Deleted || record.Kind is "artifact" or "observation" or "relationship" or "workflow.definition" or "receipt")
                     throw new InvalidOperationException("Evidence is immutable.");
                 if (entry.Property(nameof(GraphRecord.Kind)).IsModified || entry.Property(nameof(GraphRecord.Sensitivity)).IsModified)
                     throw new InvalidOperationException("Record metadata is immutable.");

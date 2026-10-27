@@ -16,7 +16,7 @@ public sealed class PostgresTests
     {
         var options = new DbContextOptionsBuilder<GraphDb>().UseNpgsql(Environment.GetEnvironmentVariable("CASEGRAPH_TEST_POSTGRES")).Options;
         var cipher = new PayloadCipher(new KeyRing("test", new Dictionary<string, byte[]> { ["test"] = RandomNumberGenerator.GetBytes(32) }));
-        await using var firstDb = new GraphDb(options); await firstDb.Database.EnsureCreatedAsync();
+        await using var firstDb = new GraphDb(options); await GraphMigrator.ApplyAsync(firstDb);
         var tenant = $"synthetic-{Guid.NewGuid():N}";
         var first = new GraphStore(firstDb, cipher, new(tenant, "synthetic-reviewer"));
         var entity = await first.CreateAsync("case", new { State = "new" });

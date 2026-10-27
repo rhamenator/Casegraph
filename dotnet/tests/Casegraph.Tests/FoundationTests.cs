@@ -12,7 +12,7 @@ public sealed class FoundationTests : IAsyncLifetime
     readonly byte[] key = RandomNumberGenerator.GetBytes(32);
     GraphDb Db() => new(new DbContextOptionsBuilder<GraphDb>().UseSqlite(connection).Options);
     GraphStore Store(GraphDb db, string tenant = "one") => new(db, new PayloadCipher(new KeyRing("v1", new Dictionary<string, byte[]> { ["v1"] = key })), new GraphContext(tenant, "synthetic-staff"));
-    public async Task InitializeAsync() { await connection.OpenAsync(); await using var db = Db(); await db.Database.EnsureCreatedAsync(); }
+    public async Task InitializeAsync() { await connection.OpenAsync(); await using var db = Db(); await GraphMigrator.ApplyAsync(db); }
     public async Task DisposeAsync() => await connection.DisposeAsync();
     [Fact]
     public async Task TenantCannotReadReviseRelateOrSeeHistoryAcrossBoundary()

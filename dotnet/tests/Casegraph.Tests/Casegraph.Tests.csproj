@@ -17,4 +17,5 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Casegraph\Casegraph.csproj" />
   </ItemGroup>
+  <ItemGroup><None Update="Fixtures/*.sql" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

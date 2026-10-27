@@ -31,7 +31,7 @@ public sealed class PostgresOperationTests
         var cipher = new PayloadCipher(new KeyRing("test", new Dictionary<string, byte[]> { ["test"] = new byte[32] }));
         var tenant = $"synthetic-ops-{Guid.NewGuid():N}";
         GraphStore Store(GraphDb db) => new(db, cipher, new(tenant, "synthetic-worker"));
-        await using var setup = new GraphDb(normalOptions); await setup.Database.EnsureCreatedAsync();
+        await using var setup = new GraphDb(normalOptions); await GraphMigrator.ApplyAsync(setup);
         var graph = Store(setup); var subject = await graph.CreateAsync("test.subject", new { Label = "synthetic" });
         var requestId = Guid.NewGuid(); var parameters = JsonSerializer.SerializeToElement(new { Source = "synthetic" });
         await using var oneDb = new GraphDb(raceOptions); await using var twoDb = new GraphDb(raceOptions);
