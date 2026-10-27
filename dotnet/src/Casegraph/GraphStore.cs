@@ -6,6 +6,7 @@ namespace Casegraph;
 /// Domain-neutral graph access. Context must originate from authenticated server identity.
 public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext context)
 {
+    internal GraphContext Context => context;
     readonly List<AuditRow> pendingAudits = [];
     static string Aad(string tenant, string kind, Guid id, int revision, Sensitivity sensitivity) => $"casegraph:v1:{tenant}:{kind}:{id:D}:{revision}:{sensitivity}";
     static void ValidateKind(string kind)
@@ -146,6 +147,15 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         await GetAsync(id, ct);
         return await db.Audit.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision)
             .Select(x => new AuditEvent(x.Id, x.Tenant, x.Actor, x.EntityId, x.Revision, x.Action, x.At)).ToListAsync(ct);
+    }
+    /// Resolve the one supported mutation author for a version; ambiguous/missing audit fails closed.
+    public async Task<string> RevisionActorAsync(EntityVersion version, CancellationToken ct = default)
+    {
+        context.Require(GraphCapabilities.Read);
+        await GetVersionAsync(version, ct);
+        var actors = await db.Audit.AsNoTracking().Where(a => a.Tenant == context.Tenant && a.EntityId == version.Id && a.Revision == version.Revision &&
+            (a.Action == "created" || a.Action == "revised")).Select(a => a.Actor).Take(2).ToArrayAsync(ct);
+        return actors.Length == 1 ? actors[0] : throw new InvalidOperationException("Revision mutation author is missing or ambiguous.");
     }
     public async Task RecordExportAsync(Guid id, CancellationToken ct = default)
     {
