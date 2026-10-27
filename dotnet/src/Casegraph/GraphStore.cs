@@ -139,6 +139,18 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
         db.Audit.Add(new AuditRow { Id = Guid.NewGuid(), Tenant = context.Tenant, Actor = context.Actor, EntityId = id, Revision = record.Revision, Action = "exported", At = DateTimeOffset.UtcNow });
         await SaveAsync(ct);
     }
+    /// Audit a bounded set of exact versions atomically before the caller releases an export.
+    /// References are immutable; export delivery itself is outside the database transaction.
+    public async Task RecordVersionExportsAsync(IReadOnlyList<EntityVersion> versions, CancellationToken ct = default)
+    {
+        if (versions is null || versions.Count is < 1 or > 100 || versions.Any(v => v is null || v.Id == Guid.Empty || v.Revision < 1) || versions.Distinct().Count() != versions.Count)
+            throw new ArgumentException("Invalid export references.");
+        foreach (var version in versions) await GetVersionAsync(version, ct);
+        var at = DateTimeOffset.UtcNow;
+        db.Audit.AddRange(versions.Select(version => new AuditRow { Id = Guid.NewGuid(), Tenant = context.Tenant, Actor = context.Actor,
+            EntityId = version.Id, Revision = version.Revision, Action = "exported", At = at }));
+        await SaveAsync(ct);
+    }
     EntitySnapshot Snapshot(GraphRecord record) => new(record.Id, record.Kind, record.Revision, record.Sensitivity,
         JsonSerializer.Deserialize<JsonElement>(cipher.Decrypt(record.EnvelopeJson, Aad(record.Tenant, record.Kind, record.Id, record.Revision, record.Sensitivity))));
     void QueueAudit(GraphRecord record, string action)
