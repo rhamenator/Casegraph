@@ -51,7 +51,7 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
     {
         context.Require(GraphCapabilities.Read);
         if (version is null || version.Id == Guid.Empty || version.Revision < 1) throw new ArgumentException("Invalid entity version.");
-        var current = await db.Records.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.Id == version.Id, ct) ?? throw new GraphNotFoundException();
+        var current = await MetadataAsync(version.Id, ct);
         var revision = await db.Revisions.AsNoTracking().SingleOrDefaultAsync(x => x.Tenant == context.Tenant && x.EntityId == version.Id && x.Revision == version.Revision, ct) ?? throw new GraphNotFoundException();
         return new(current.Id, current.Kind, revision.Revision, current.Sensitivity,
             JsonSerializer.Deserialize<JsonElement>(cipher.Decrypt(revision.EnvelopeJson, Aad(context.Tenant, current.Kind, current.Id, revision.Revision, current.Sensitivity))));
@@ -133,21 +133,53 @@ public sealed class GraphStore(GraphDb db, PayloadCipher cipher, GraphContext co
             throw new ArgumentException("Processing profile is required.");
         return await InsertAsync("observation", observation, Sensitivity.Restricted, ct);
     }
+    /// Newest-first keyset traversal. Appending revisions cannot shift an existing continuation.
+    public async Task<RevisionPage> HistoryPageAsync(Guid id, int? beforeRevision = null, int limit = 25, CancellationToken ct = default)
+    {
+        context.Require(GraphCapabilities.Read);
+        if (beforeRevision is < 1 || limit is < 1 or > 100) throw new ArgumentException("Invalid history page.");
+        var current = await MetadataAsync(id, ct);
+        var query = db.Revisions.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id);
+        if (beforeRevision is int before) query = query.Where(x => x.Revision < before);
+        var revisions = await query.OrderByDescending(x => x.Revision).Take(limit + 1).ToListAsync(ct);
+        var items = revisions.Take(limit).Select(x => RevisionSnapshot(current, x)).ToArray();
+        return new(items, revisions.Count > limit ? items[^1].Revision : null);
+    }
+    /// Stable ordering within an unchanged journal. Offsets are not snapshot cursors: exports can append to older revisions.
+    public async Task<GraphPage<AuditEvent>> AuditPageAsync(Guid id, int offset = 0, int limit = 25, CancellationToken ct = default)
+    {
+        context.Require(GraphCapabilities.Read);
+        if (offset < 0 || offset > int.MaxValue - 101 || limit is < 1 or > 100) throw new ArgumentException("Invalid audit page.");
+        await MetadataAsync(id, ct);
+        var events = await db.Audit.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id)
+            .OrderByDescending(x => x.Revision).ThenBy(x => x.Id).Skip(offset).Take(limit + 1)
+            .Select(x => new AuditEvent(x.Id, x.Tenant, x.Actor, x.EntityId, x.Revision, x.Action, x.At)).ToListAsync(ct);
+        return new(events.Take(limit).ToArray(), events.Count > limit ? checked(offset + limit) : null);
+    }
+    /// Legacy ascending array, capped explicitly rather than silently truncated. Prefer HistoryPageAsync.
     public async Task<IReadOnlyList<EntitySnapshot>> HistoryAsync(Guid id, CancellationToken ct = default)
     {
         context.Require(GraphCapabilities.Read);
-        var current = await GetAsync(id, ct);
-        var revisions = await db.Revisions.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision).ToListAsync(ct);
-        return revisions.Select(x => new EntitySnapshot(id, current.Kind, x.Revision, current.Sensitivity,
-            JsonSerializer.Deserialize<JsonElement>(cipher.Decrypt(x.EnvelopeJson, Aad(context.Tenant, current.Kind, id, x.Revision, current.Sensitivity))))).ToArray();
+        var current = await MetadataAsync(id, ct);
+        var revisions = await db.Revisions.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision).Take(501).ToListAsync(ct);
+        if (revisions.Count > 500) throw new InvalidOperationException("Use paged history for more than 500 revisions.");
+        return revisions.Select(x => RevisionSnapshot(current, x)).ToArray();
     }
+    /// Legacy ascending array, capped explicitly rather than silently truncated. Prefer AuditPageAsync.
     public async Task<IReadOnlyList<AuditEvent>> AuditAsync(Guid id, CancellationToken ct = default)
     {
         context.Require(GraphCapabilities.Read);
-        await GetAsync(id, ct);
-        return await db.Audit.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision)
+        await MetadataAsync(id, ct);
+        var events = await db.Audit.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.EntityId == id).OrderBy(x => x.Revision).ThenBy(x => x.Id).Take(501)
             .Select(x => new AuditEvent(x.Id, x.Tenant, x.Actor, x.EntityId, x.Revision, x.Action, x.At)).ToListAsync(ct);
+        if (events.Count > 500) throw new InvalidOperationException("Use paged audit for more than 500 events.");
+        return events;
     }
+    async Task<GraphRecord> MetadataAsync(Guid id, CancellationToken ct) =>
+        await db.Records.AsNoTracking().Where(x => x.Tenant == context.Tenant && x.Id == id)
+            .Select(x => new GraphRecord { Id = x.Id, Kind = x.Kind, Sensitivity = x.Sensitivity }).SingleOrDefaultAsync(ct) ?? throw new GraphNotFoundException();
+    EntitySnapshot RevisionSnapshot(GraphRecord current, GraphRevision revision) => new(current.Id, current.Kind, revision.Revision, current.Sensitivity,
+        JsonSerializer.Deserialize<JsonElement>(cipher.Decrypt(revision.EnvelopeJson, Aad(context.Tenant, current.Kind, current.Id, revision.Revision, current.Sensitivity))));
     /// Resolve the one supported mutation author for a version; ambiguous/missing audit fails closed.
     public async Task<string> RevisionActorAsync(EntityVersion version, CancellationToken ct = default)
     {
